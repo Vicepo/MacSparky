@@ -7,7 +7,8 @@ import config
 import updater
 
 
-@pytest.mark.parametrize("a,b", [("1.2.0", "1.1.9"), ("1.10.0", "1.9.9"), ("2.0", "1.99.99"), ("1.2.1", "1.2")])
+@pytest.mark.parametrize("a,b", [("1.2.0", "1.1.9"), ("1.10.0", "1.9.9"), ("2.0", "1.99.99"), ("1.2.1", "1.2"),
+                                 ("1.6.1-mac.2", "1.6.1-mac.1"), ("1.6.1-mac.1", "1.6.1"), ("1.6.2", "1.6.1-mac.3")])
 def test_versions_compare_as_numbers(a, b):
     assert updater._num(a) > updater._num(b)
 
@@ -68,10 +69,29 @@ def test_zip_install_gets_the_install_command(tmp_path, monkeypatch):
     (tmp_path / "VERSION").write_text("1.0.0")
     monkeypatch.setitem(updater.state, "latest", "1.1.0")
     s = updater.status()
-    assert s["available"] and not s["git"] and not s["auto"] and "install.ps1" in s["command"]
+    assert s["available"] and not s["git"] and not s["auto"] and config.INSTALLER in s["command"]
 
 
 def test_offline_check_is_not_an_error(monkeypatch):
     monkeypatch.setattr(updater, "REMOTE_VERSION", "http://127.0.0.1:9/VERSION")
     updater.check(force=True)
     assert updater.state["error"]
+
+
+def test_install_command_matches_the_os():
+    cmd = updater.INSTALL_CMD
+    assert updater.REPO in cmd
+    assert cmd.startswith("irm ") if config.IS_WIN else cmd.startswith("curl -fsSL ") and cmd.endswith("install.sh | bash")
+
+
+@pytest.mark.skipif(config.IS_WIN, reason="macOS / Linux restart path")
+def test_posix_restart_starts_a_detached_server_without_a_shell(tmp_path, monkeypatch):
+    """Regression: off Windows _restart did nothing, so an update pulled the code and Sparky never came back."""
+    calls = []
+    monkeypatch.setattr(config, "DATA", str(tmp_path))
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda cmd, **kw: calls.append((cmd, kw)))
+    updater._restart_posix()
+    (cmd, kw), = calls
+    assert cmd[0] == updater.sys.executable and cmd[1] == "-c" and "shell" not in kw
+    assert cmd[3:] == [updater.sys.executable, os.path.join("app", "server.py"), "--port", str(config.APP_PORT)]
+    assert kw["start_new_session"] and kw["cwd"] == config.ROOT

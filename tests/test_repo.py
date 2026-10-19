@@ -60,3 +60,34 @@ def test_generated_projects_load_from_the_preview_origin_only():
     uses = re.findall(r".{0,12}/api/proj/", html)
     assert uses and all("PREVIEW" in u for u in uses), uses
     assert '"/api/proj/"' not in read("app/server.py").split("class PreviewHandler")[0]
+
+
+SHELL_SCRIPTS = ["install.sh", "start.sh", "stop.sh", "Sparky.command"]
+
+
+@pytest.mark.parametrize("script", SHELL_SCRIPTS)
+def test_shell_scripts_parse_and_are_executable(script):
+    """macOS scripts: LF endings, executable (double-click, ./start.sh), valid for the bash 3.2 of macOS."""
+    data = read(script, "rb")
+    assert data.startswith(b"#!/bin/bash\n") and b"\r\n" not in data
+    if os.name != "nt":
+        assert os.access(os.path.join(ROOT, script), os.X_OK)
+    bash = shutil.which("bash")
+    if not bash or os.name == "nt":
+        pytest.skip("bash missing")
+    r = subprocess.run([bash, "-n", os.path.join(ROOT, script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_mac_installer_is_safe_to_pipe_and_never_downloads_models_by_default():
+    sh = read("install.sh")
+    assert sh.rstrip().endswith('\nmain "$@"')  # "curl | bash" cut in the middle runs nothing
+    assert 'if [ -n "$MODELS" ]; then' in sh
+    assert "shasum -a 256" in sh and "badsum" in sh  # llama.cpp binaries are checked before use
+    assert "sudo" not in sh.replace("Nothing needs sudo", "")
+
+
+def test_mac_stop_script_only_stops_sparky_processes():
+    """stop.sh must not kill another program that happens to listen on 8080 / 8188."""
+    sh = read("stop.sh")
+    assert "app/server.py" in sh and "llama-server" in sh and "main.py" in sh and "not Sparky" in sh

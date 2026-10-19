@@ -168,3 +168,13 @@ def test_sparky_restart_helper_is_not_detached():
     """Regression: with DETACHED_PROCESS PowerShell had no console and died, Sparky never came back."""
     src = open(os.path.join(os.path.dirname(config.__file__), "updater.py"), encoding="utf-8").read()
     assert "DETACHED_PROCESS" not in src.split("def _restart")[1].split("def update")[0].replace("# no DETACHED_PROCESS", "")
+
+
+def test_apple_gpu_stats_come_from_ioreg(monkeypatch):
+    import server
+    out = '"PerformanceStatistics" = {"Device Utilization %"=43,"In use system memory"=419430400,"Alloc system memory"=6254395392}'
+    monkeypatch.setattr(server.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out})())
+    g = server.apple_gpu()
+    assert g["util"] == 43 and g["used"] == 400 and g["total"] > 1000 and g["temp"] is None
+    monkeypatch.setattr(server.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": ""})())
+    assert server.apple_gpu() == {}

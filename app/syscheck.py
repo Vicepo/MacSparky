@@ -17,6 +17,12 @@ BANDWIDTH = [("5090", 1500), ("5080", 800), ("5070 ti", 750), ("5070", 560), ("5
              ("2070", 380), ("2060", 280), ("a6000", 640), ("a5000", 640), ("a4000", 380),
              ("spark", 230), ("gb10", 230)]
 UNIFIED_HINTS = ("spark", "gb10")
+# Apple Silicon: nominal bandwidth (GB/s); most specific first ("m3 max" before "m3")
+APPLE_BANDWIDTH = [("m1 ultra", 800), ("m1 max", 400), ("m1 pro", 200), ("m1", 68),
+                   ("m2 ultra", 800), ("m2 max", 400), ("m2 pro", 200), ("m2", 100),
+                   ("m3 ultra", 819), ("m3 max", 400), ("m3 pro", 150), ("m3", 100),
+                   ("m4 max", 546), ("m4 pro", 273), ("m4", 120), ("m5", 153)]
+EFFECTIVE = 0.84  # share of the nominal bandwidth an LLM really gets (what the NVIDIA table above holds)
 
 
 def _run(cmd, timeout=10):
@@ -30,11 +36,23 @@ def _ps(expr):
     return _run(["powershell", "-NoProfile", "-Command", expr]).strip() if os.name == "nt" else ""
 
 
+def _sysctl(key):
+    return _run(["sysctl", "-n", key]).strip() if config.IS_MAC else ""
+
+
+def apple_silicon():
+    """True on an Apple Silicon Mac, also when this Python runs under Rosetta (it then reports x86_64)."""
+    return config.IS_MAC and (platform.machine() == "arm64" or _sysctl("hw.optional.arm64") == "1")
+
+
 def detect():
     import psutil
     ram = psutil.virtual_memory().total / 2**30
-    cpu = _ps("(Get-CimInstance Win32_Processor | Select -First 1).Name") or platform.processor() or "?"
+    cpu = _ps("(Get-CimInstance Win32_Processor | Select -First 1).Name") or _sysctl("machdep.cpu.brand_string") \
+        or platform.processor() or "?"
     gpus = []
+    if apple_silicon():  # the GPU is in the chip and shares the memory (Metal)
+        gpus.append({"name": f"{cpu.strip()} GPU", "vram_gb": round(ram, 1), "driver": "Metal", "vendor": "apple"})
     out = _run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"])
     for line in out.splitlines():
         p = [x.strip() for x in line.split(",")]
@@ -46,23 +64,31 @@ def detect():
                 gpus.append({"name": n.strip(), "vram_gb": 0, "driver": "", "vendor": "other"})
     os.makedirs(config.LLM_DIR, exist_ok=True)
     disk = shutil.disk_usage(config.LLM_DIR).free / 2**30
-    return {"os": f"{platform.system()} {platform.release()}", "arch": platform.machine(), "cpu": cpu.strip(),
+    osname = f"macOS {platform.mac_ver()[0]}" if config.IS_MAC else f"{platform.system()} {platform.release()}"
+    return {"os": osname, "arch": "arm64" if apple_silicon() else platform.machine(), "cpu": cpu.strip(),
             "cores": psutil.cpu_count(logical=False) or psutil.cpu_count(), "ram_gb": round(ram, 1),
             "gpus": gpus, "disk_free_gb": round(disk, 1)}
 
 
 def assess(hw):
     """Memory budget for models and estimated speed."""
-    g = next((x for x in hw["gpus"] if x["vendor"] == "nvidia"), None)
+    g = next((x for x in hw["gpus"] if x["vendor"] in ("nvidia", "apple")), None)
     name = (g or {}).get("name", "").lower()
-    unified = bool(g) and (any(h in name for h in UNIFIED_HINTS) or abs(g["vram_gb"] - hw["ram_gb"]) < 0.12 * hw["ram_gb"])
-    if g and unified:
+    apple = bool(g) and g["vendor"] == "apple"
+    unified = bool(g) and (apple or any(h in name for h in UNIFIED_HINTS) or abs(g["vram_gb"] - hw["ram_gb"]) < 0.12 * hw["ram_gb"])
+    if apple:
+        # macOS lets Metal use ~2/3 of the memory, and needs ~6 GB for itself and the apps: 16 GB -> 10 GB for models
+        mode, mem = "unified", max(0.0, min(hw["ram_gb"] * 0.7, hw["ram_gb"] - 6.0))
+    elif g and unified:
         mode, mem = "unified", g["vram_gb"] - 2.0      # memory shared by CPU + GPU, keep enough to run Windows
     elif g:
         mode, mem = "gpu", g["vram_gb"] - 1.0
     else:
         mode, mem = "cpu", max(0.0, hw["ram_gb"] - 8.0)
-    bw = next((b for k, b in BANDWIDTH if k in name), None) if g else None
+    if apple:
+        bw = round(next((b for k, b in APPLE_BANDWIDTH if k in name), 100) * EFFECTIVE)
+    else:
+        bw = next((b for k, b in BANDWIDTH if k in name), None) if g else None
     if bw is None:
         bw = (max(150, g["vram_gb"] * 25) if g else 40)
     image_gb = 7.5                                     # FLUX.2 Klein 4B (or SDXL) during a generation
@@ -75,7 +101,8 @@ def assess(hw):
     else:
         tier, label = 4, "Excellente"
     return {"mode": mode, "gpu": g["name"] if g else None, "model_mem_gb": round(mem, 1), "bandwidth": bw,
-            "image_gb": image_gb, "tier": tier, "tier_label": label, "images": mode != "cpu" and mem >= 5.5}
+            # images on a Mac (ComfyUI on MPS) are not validated yet: not recommended until then (porting plan, phase 3)
+            "image_gb": image_gb, "tier": tier, "tier_label": label, "images": mode != "cpu" and mem >= 5.5 and not apple}
 
 
 def recommend(sysinfo):
@@ -98,6 +125,8 @@ def recommend(sysinfo):
         fits = [m for m in imgs if catalog.indicators(m, sysinfo=sysinfo)["fit"] >= 1]
         pick = next((m for m in fits if m.get("engine") == "klein"), None) or (max(fits, key=lambda m: m["quality"]) if fits else None)
         out["image"] = pick["id"] if pick else None
+    elif (a.get("gpu") or "").lower().startswith("apple"):
+        notes.append("Mac : la génération d'images n'est pas encore validée sur Apple Silicon, elle n'est pas recommandée pour l'instant.")
     else:
         notes.append("Pas de GPU NVIDIA compatible : la génération d'images serait très lente, elle n'est pas recommandée.")
     out["voice"] = "whisper-turbo" if a["mode"] != "cpu" else "whisper-base"  # voice dictation
@@ -132,6 +161,7 @@ def current():
 
 TIER_EN = {"Limitée": "Limited", "Correcte": "Fair", "Bonne": "Good", "Excellente": "Excellent"}
 NOTES_EN = [(r"^Pas de GPU NVIDIA compatible.*", "No compatible NVIDIA GPU: image generation would be very slow, so it isn't recommended."),
+            (r"^Mac : la génération d'images.*", "Mac: image generation is not validated on Apple Silicon yet, so it isn't recommended for now."),
             (r"^Sans GPU NVIDIA.*", "Without an NVIDIA GPU the assistant runs on the processor: pick a small model."),
             (r"^Espace disque faible : (\d+) Go libres pour ~(\d+) Go.*", r"Low disk space: \1 GB free for ~\2 GB of recommended models.")]
 

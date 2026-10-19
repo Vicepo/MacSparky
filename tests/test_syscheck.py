@@ -51,3 +51,46 @@ def test_low_disk_space_is_reported():
 def test_unified_memory_machines_keep_memory_for_windows():
     i = machine("NVIDIA GB10 Spark", 120, 128)
     assert i["assess"]["mode"] == "unified" and i["assess"]["model_mem_gb"] == 118
+
+
+def mac(chip="Apple M3", ram=16, disk=500):
+    hw = {"os": "macOS 26.6", "arch": "arm64", "cpu": chip, "cores": 8, "ram_gb": ram, "disk_free_gb": disk,
+          "gpus": [{"name": f"{chip} GPU", "vram_gb": ram, "driver": "Metal", "vendor": "apple"}]}
+    info = {"hw": hw, "assess": syscheck.assess(hw)}
+    info["recommended"], info["notes"] = syscheck.recommend(info)
+    return info
+
+
+def test_16gb_mac_runs_on_metal_and_keeps_memory_for_macos():
+    i = mac()
+    a = i["assess"]
+    assert a["mode"] == "unified" and a["gpu"] == "Apple M3 GPU" and a["model_mem_gb"] == 10
+    assert a["bandwidth"] == 84 and not a["images"]  # images on MPS: not validated yet
+    assert i["recommended"] == {"llm": "qwen354", "voice": "whisper-turbo"}
+    assert any(n.startswith("Mac :") for n in i["notes"]) and syscheck.note_en(i["notes"][0]).startswith("Mac:")
+
+
+@pytest.mark.parametrize("chip,bw", [("Apple M3 Max", 400), ("Apple M3 Pro", 150), ("Apple M4 Pro", 273), ("Apple M1", 68),
+                                     ("Apple M9", 100)])
+def test_apple_chip_bandwidth_most_specific_name_wins(chip, bw):
+    assert mac(chip, 64)["assess"]["bandwidth"] == round(bw * syscheck.EFFECTIVE)
+
+
+def test_big_mac_gets_a_bigger_model_and_small_mac_a_small_one():
+    import catalog
+    big, small = mac("Apple M4 Max", 128), mac("Apple M1", 8)
+    assert big["assess"]["model_mem_gb"] == pytest.approx(89.6) and big["assess"]["tier"] == 4
+    assert catalog.BY_ID[big["recommended"]["llm"]]["quality"] == 5
+    assert small["assess"]["model_mem_gb"] == 2 and small["assess"]["tier"] == 1
+
+
+def test_detect_on_apple_silicon(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "IS_MAC", True)
+    monkeypatch.setattr(syscheck.platform, "machine", lambda: "x86_64")  # Python under Rosetta
+    monkeypatch.setattr(syscheck.platform, "mac_ver", lambda: ("26.6", ("", "", ""), "arm64"))
+    answers = {"hw.optional.arm64": "1\n", "machdep.cpu.brand_string": "Apple M3\n"}
+    monkeypatch.setattr(syscheck, "_run", lambda cmd, timeout=10: answers.get(cmd[-1], "") if cmd[0] == "sysctl" else "")
+    hw = syscheck.detect()
+    assert hw["os"] == "macOS 26.6" and hw["arch"] == "arm64" and hw["cpu"] == "Apple M3"
+    assert hw["gpus"][0] | {"vram_gb": 0} == {"name": "Apple M3 GPU", "vram_gb": 0, "driver": "Metal", "vendor": "apple"}

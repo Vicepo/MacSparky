@@ -81,3 +81,22 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
 - **Upstream merges**: the original changes often; sync regularly (`git fetch upstream && git merge upstream/main`)
   so conflicts stay small.
 - **macOS permissions**: screenshots and controlling Finder ask for user permission the first time.
+
+## Progress (branch `mac-port`)
+
+- **Phase 1 — done** (`4716ad9`). Extra fix: off Windows, `updater._restart` did nothing (an update never came back);
+  version compare now uses every number so `1.6.1-mac.2 > 1.6.1-mac.1`.
+- **Phase 2 — done** (`8d92383`). Verified on the M3 / 16 GB: Qwen3.5 4B on Metal, 284 tok/s prompt, 25 tok/s
+  generation, chat through `/api/chat`, start/stop cycle. Changes vs. the plan: GPU monitor uses `ioreg` (real GPU use
+  and memory, no sudo) instead of RAM only; llama.cpp macOS builds are `.tar.gz` with a sha256 digest (checked).
+
+### Pending / to review
+- **Security (also on Windows, upstream):** llama-server runs with no API key and `CORS: *`, so any web page open in
+  the browser can use the local model on `127.0.0.1:8080` and read its answers (`/slots` does not expose conversation
+  text). Options: `--cors-origins` limited to Sparky (cheap; requests still run, answers cannot be read), or `--api-key`
+  plus the key in harness / companion / openai_api (complete). Decision needed.
+- **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
+- **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
+- **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).
+- Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model; fine here, watch memory with
+  bigger models (phase 3 adds images on top).

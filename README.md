@@ -25,7 +25,7 @@ everything runs on your own PC. Nothing is sent to the internet unless you turn 
 
 ## ✨ What it does
 
-### 💬 Chat
+### 💬 Chat TEST
 - 🔒 **Like ChatGPT, offline** — history, plus 👻 **temporary chats** that are never saved.
 - ✏️ **Edit** any message, 🔁 **regenerate** or ➡️ **continue** an answer, and flip between versions (‹ 2/3 ›).
 - 🧠 **Adjustable thinking** — Off, Light, Normal or Deep, and see how the model reasoned.

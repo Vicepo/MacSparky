@@ -9,9 +9,10 @@ import os, re, shutil, subprocess, sys, threading, time, urllib.request
 
 import config
 
-REPO = "anisayari/sparky"
+REPO = "Vicepo/MacSparky"  # this fork (upstream: anisayari/sparky)
 REMOTE_VERSION = os.environ.get("SPARKY_VERSION_URL") or f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
-INSTALL_CMD = f"irm https://raw.githubusercontent.com/{REPO}/main/install.ps1 | iex"
+INSTALL_CMD = (f"irm https://raw.githubusercontent.com/{REPO}/main/install.ps1 | iex" if config.IS_WIN else
+               f"curl -fsSL https://raw.githubusercontent.com/{REPO}/main/install.sh | bash")
 NOWIN = config.NOWIN
 CHECK_EVERY = 3600
 
@@ -27,7 +28,7 @@ def current():
 
 
 def _num(v):
-    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3]) or (0,)
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")) or (0,)  # all numbers: 1.6.1-mac.2 > 1.6.1-mac.1
 
 
 def _git(*args, timeout=60):
@@ -78,10 +79,23 @@ def status():
             "command": INSTALL_CMD, "root": config.ROOT}
 
 
+def _restart_posix():
+    """macOS / Linux: a small detached Python waits for the port to be released, then becomes the new server.
+    No shell: the paths are passed as arguments, never pasted into a command line."""
+    os.makedirs(config.DATA, exist_ok=True)
+    wait = "import os, sys, time; time.sleep(2); os.execv(sys.argv[1], sys.argv[1:])"
+    cmd = [sys.executable, "-c", wait, sys.executable, os.path.join("app", "server.py"), "--port", str(config.APP_PORT)]
+    with open(os.path.join(config.DATA, "server.log"), "ab") as out, open(os.path.join(config.DATA, "server.err.log"), "ab") as err:
+        subprocess.Popen(cmd, cwd=config.ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                         start_new_session=True, close_fds=True)  # own session: survives this process and its terminal
+
+
 def _restart():
     """Starts a new Sparky once this process has released its port, then exits."""
-    if os.name != "nt":
-        return
+    if not config.IS_WIN:
+        _restart_posix()
+        time.sleep(0.5)
+        os._exit(0)
     q = lambda p: p.replace("'", "''")
     script = (f"Start-Sleep -Seconds 2; Start-Process '{q(sys.executable)}' -ArgumentList 'app\\server.py','--port','{config.APP_PORT}' "
               f"-WorkingDirectory '{q(config.ROOT)}' -WindowStyle Hidden "

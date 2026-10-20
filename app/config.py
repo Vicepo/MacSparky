@@ -4,8 +4,12 @@ By default everything lives in the project folder (runtime\, models\, data\). A 
 at the project root can point to an existing installation, for example:
   {"comfy_dir": "D:\\ComfyUI", "llama_server": "D:\\llama\\llama-server.exe", "llm_dir": "D:\\models"}
 """
-import json, os, threading
+import json, os, sys, threading
 
+IS_WIN = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+EXE = ".exe" if IS_WIN else ""            # executables have no extension on macOS / Linux
+INSTALLER = "install.ps1" if IS_WIN else "install.sh"
 APP = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(APP)
 _cfg = {}
@@ -20,7 +24,7 @@ def _p(key, default):
 
 RUNTIME = _p("runtime_dir", os.path.join(ROOT, "runtime"))
 COMFY_DIR = _p("comfy_dir", os.path.join(RUNTIME, "ComfyUI"))
-LLAMA_SERVER = _p("llama_server", os.path.join(RUNTIME, "llama", "llama-server.exe"))
+LLAMA_SERVER = _p("llama_server", os.path.join(RUNTIME, "llama", "llama-server" + EXE))
 LLM_DIR = _p("llm_dir", os.path.join(ROOT, "models", "llm"))
 MMPROJ_DIR = _p("mmproj_dir", os.path.join(ROOT, "models", "mmproj"))
 VOICE_DIR = _p("voice_dir", os.path.join(ROOT, "models", "voice"))
@@ -33,7 +37,7 @@ COMFY_PORT = int(_cfg.get("comfy_port", 8188))
 LLM_PORT = int(_cfg.get("llm_port", 8080))
 APP_PORT = int(_cfg.get("app_port", 7860))
 PREVIEW_PORT = APP_PORT + 1  # generated projects are served on their own origin (they must not reach the API)
-NOWIN = 0x08000000 if os.name == "nt" else 0  # subprocess.CREATE_NO_WINDOW
+NOWIN = 0x08000000 if IS_WIN else 0  # subprocess.CREATE_NO_WINDOW
 
 _io_lock = threading.Lock()
 

@@ -142,7 +142,7 @@ def llm_ctx(m):
 
 def launch_llm(m):
     if not os.path.exists(config.LLAMA_SERVER):
-        raise RuntimeError("llama-server introuvable : " + config.LLAMA_SERVER + " (relance install.ps1)")
+        raise RuntimeError("llama-server introuvable : " + config.LLAMA_SERVER + f" (relance {config.INSTALLER})")
     args = catalog.llm_args(m)
     gpu = syscheck.current()["assess"]["mode"] != "cpu"
     ctx = llm_state["ctx"] = llm_ctx(m)
@@ -321,11 +321,31 @@ _gpu = {"t": 0.0, "v": {}, "missing": False}
 _gpu_lock = threading.Lock()
 
 
+def apple_gpu():
+    """Apple Silicon: GPU use and GPU memory from ioreg (no sudo, ~10 ms). Same units as nvidia-smi (MiB);
+    the total is the whole memory, shared with the CPU. Temperature and power need sudo: not shown."""
+    out = subprocess.run(["ioreg", "-r", "-d", "1", "-c", "IOAccelerator"], capture_output=True, text=True, timeout=5).stdout
+    stat = lambda k: (m := re.search(r'"' + re.escape(k) + r'"=(\d+)', out)) and int(m.group(1))
+    util, used = stat("Device Utilization %"), stat("In use system memory")
+    if util is None and used is None:
+        return {}
+    return {"util": util, "used": used / 2**20 if used is not None else None,
+            "total": psutil.virtual_memory().total / 2**20 if used is not None else None, "temp": None, "power": None}
+
+
 def gpu_stats():
     """nvidia-smi is slow (~100 ms): read at most every 5 s, by one thread, and never again once it is missing."""
     with _gpu_lock:
         if not _gpu["missing"] and time.time() - _gpu["t"] > 5:
             _gpu["t"] = time.time()
+            if config.IS_MAC:
+                try:
+                    _gpu["v"] = apple_gpu()
+                except FileNotFoundError:
+                    _gpu.update(missing=True, v={})
+                except Exception:
+                    _gpu["v"] = {}
+                return _gpu["v"]
             try:
                 line = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
                                        "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5,

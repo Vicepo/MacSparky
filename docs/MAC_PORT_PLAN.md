@@ -97,6 +97,15 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   Worth reporting upstream (`anisayari/sparky`).
 - ~~**macOS:** `psutil.net_connections()` needs root~~ **fixed**: `stop_llm` / `stop_comfy` crashed with AccessDenied,
   so switching or restarting the assistant failed on a Mac; they now ask each candidate process for its own sockets.
+- ~~**Computer mode said "done" without doing it**~~ **fixed**: the small model put the script in an artifact (Sparky's
+  panel only) and replied "your script is in your folder". The prompt and the post-artifact note now say an artifact is
+  not on the disk and point to `write`; a reply claiming a file is on the computer with no real write this turn is sent
+  back to the model (`DISK_CLAIM`, at most twice). Live on Qwen3.5 4B: 2/3 runs wrote the file after approval, 3/3 honest.
+- **Phase 4 (security part) done early:** macOS protected folders (`/System`, `/Library`, `/Applications`, `/usr`, `/opt`,
+  `/private`, `/etc`, `/var`..., `~/Library`, every hidden file of the home folder, disk roots), symlinks resolved and case
+  folded; Trash (`/usr/bin/trash`, Finder fallback), `open`, `zsh` with a timeout that stops the whole process group,
+  `/` + `/Volumes` disks, Mac prompt. Still to do in phase 4: screenshot permission message, UI texts ("Recycle Bin").
+  Note: the macOS test sends `sparky-test-trash.txt` to the Trash on each local run.
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
 - **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).

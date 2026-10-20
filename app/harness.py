@@ -4,7 +4,7 @@ At each step the model answers with a JSON action (generate / edit / reply). Aft
 generation it receives the produced image (and the references used) to check it and
 fix it itself if needed, up to MAX_STEPS steps per message.
 """
-import base64, contextlib, io, json, os, random, re, threading, time, urllib.error, urllib.request, uuid
+import base64, contextlib, io, json, os, random, re, secrets, threading, time, urllib.error, urllib.request, uuid
 
 from PIL import Image, ImageDraw
 
@@ -94,9 +94,41 @@ def system_prompt():
 
 
 # ---------------------------------------------------------------- utilities
-def http_json(url, payload=None, timeout=900):
+LLM_KEY_FILE = os.path.join(DATA, "llm.key")
+_llm_key = {"v": None}
+_llm_key_lock = threading.Lock()
+
+
+def llm_key():
+    """Secret shared by Sparky and its llama-server. Without it, another program or a web page open in the browser
+    cannot use the local model: llama-server then answers 401 to everything but /health.
+    Kept in data/llm.key (owner-only) so a llama-server still running from a previous session stays usable."""
+    with _llm_key_lock:
+        if _llm_key["v"] is None:
+            try:
+                with open(LLM_KEY_FILE, encoding="utf-8") as f:
+                    key = f.read().strip()
+            except OSError:
+                key = ""
+            if len(key) < 32:
+                key = secrets.token_urlsafe(32)
+                os.makedirs(DATA, exist_ok=True)
+                tmp = f"{LLM_KEY_FILE}.{os.getpid()}.tmp"
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(key)
+                os.replace(tmp, LLM_KEY_FILE)
+            _llm_key["v"] = key
+        return _llm_key["v"]
+
+
+def llm_headers():
+    return {"Content-Type": "application/json", "Authorization": "Bearer " + llm_key()}
+
+
+def http_json(url, payload=None, timeout=900, headers=None):
     data = None if payload is None else json.dumps(payload).encode()
-    req = urllib.request.Request(url, data, {"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data, headers or {"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r)
@@ -113,8 +145,7 @@ def cloud_model():
 
 def llama_deltas(body):
     """Streams llama-server's answer: yields (text, reasoning) pieces."""
-    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body | {"stream": True}).encode(),
-                                 {"Content-Type": "application/json"})
+    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body | {"stream": True}).encode(), llm_headers())
     with urllib.request.urlopen(req, timeout=900) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -146,7 +177,7 @@ def chat_once(body):
     if m:
         import cloud
         return cloud.complete(m, body["messages"], body.get("max_tokens", 900), json_mode=bool(body.get("response_format")))
-    return http_json(LLM + "/v1/chat/completions", body)["choices"][0]["message"]["content"] or ""
+    return http_json(LLM + "/v1/chat/completions", body, headers=llm_headers())["choices"][0]["message"]["content"] or ""
 
 
 def fit_1mp(im):

@@ -145,7 +145,7 @@ def _local(handler, b, mid, stream):
         {"enable_thinking": True, "reasoning_effort": effort} if effort else {"enable_thinking": False})
     if stream and b.get("stream_options"):
         body["stream_options"] = b["stream_options"]
-    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body).encode(), harness.llm_headers())
     try:
         r = urllib.request.urlopen(req, timeout=900)
     except urllib.error.HTTPError as e:

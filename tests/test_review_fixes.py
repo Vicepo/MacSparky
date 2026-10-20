@@ -178,3 +178,30 @@ def test_apple_gpu_stats_come_from_ioreg(monkeypatch):
     assert g["util"] == 43 and g["used"] == 400 and g["total"] > 1000 and g["temp"] is None
     monkeypatch.setattr(server.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": ""})())
     assert server.apple_gpu() == {}
+
+
+def test_listeners_work_without_root_on_macos(monkeypatch):
+    """Regression (macOS): psutil.net_connections() needs root there, so stop_llm / stop_comfy crashed with
+    AccessDenied and switching models failed. Each process is then asked for its own sockets."""
+    import psutil, server
+
+    class Conn:
+        def __init__(self, port):
+            self.laddr, self.status = type("A", (), {"port": port})(), psutil.CONN_LISTEN
+
+    class Proc:
+        def __init__(self, name, port):
+            self._name, self._port, self.pid = name, port, port
+
+        def name(self):
+            return self._name
+
+        def net_connections(self, kind):
+            return [Conn(self._port)]
+
+    def denied(kind):
+        raise psutil.AccessDenied()
+    procs = [Proc("llama-server", 8080), Proc("nginx", 8080), Proc("llama-server", 9999)]
+    monkeypatch.setattr(server.psutil, "net_connections", denied)
+    monkeypatch.setattr(server.psutil, "process_iter", lambda attrs=None: procs)
+    assert server.listeners(8080, "llama") == [procs[0]]  # not the other program on 8080, not the other port

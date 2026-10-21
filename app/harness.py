@@ -451,6 +451,9 @@ def image_id(x):
     return int(str(x).lstrip("#"))
 
 
+DISK_PATH = re.compile(r"^(?:[/~]|[A-Za-z]:[\\/]|%\w+%)")  # a path on the computer, not a file of a Sparky project
+
+
 def clean_path(p):
     """Relative path inside a project (no drive, no '..', forward slashes)."""
     parts = [x for x in re.split(r"[\\/]+", str(p or "").strip()) if x not in ("", ".", "..") and ":" not in x]
@@ -1459,16 +1462,38 @@ class Session:
         self._note(f"[TEST AUTOMATIQUE] Re-testé après ta correction : toujours une erreur.\n{failed[0][1]['report']}\n"
                    "Corrige le fichier concerné (contenu COMPLET).")
 
-    def _on_artifact(self, t, args, ev):
+    def _on_disk_artifact(self, t, args, ev):
+        """An artifact whose "path" is a path on the computer ("/Users/x/a.py"): the model wants the file on the disk.
+        Shown in the panel, then written with computer write when Computer mode allows it (same approval card and
+        protected folders as a direct write); otherwise the model is told it stays in the panel."""
+        import computer
+        target = str(args.get("path"))
+        plain = {k: v for k, v in args.items() if k not in ("path", "project", "entry")}
+        plain.setdefault("id", os.path.splitext(os.path.basename(target))[0] or "fichier")
+        if not self._on_artifact(t, plain, ev, note=False):
+            return
+        level = self.config.get("computer") or "off"
+        if computer.needs_approval(level, "write") == "deny":
+            return self._note(f"[ARTIFACT] Affiché dans le panneau. « {target} » est un chemin de l'ordinateur, pas un fichier de "
+                              "projet Sparky (\"path\" d'un artifact = fichier d'un projet). " + self._disk_hint()
+                              + "Termine maintenant par une courte reply (sans recopier le code).")
+        self._note(f"[ARTIFACT] Affiché dans le panneau. « {target} » est un chemin de l'ordinateur : Sparky l'écrit avec "
+                   "computer write (résultat ci-dessous). La prochaine fois, utilise directement computer write.")
+        self._on_computer(t, {"tool": "write", "path": target, "content": plain.get("content", "")}, ev)
+
+    def _on_artifact(self, t, args, ev, note=True):
         try:
             aid, art = self.tool_artifact(args)
         except Exception as e:
             ev({"type": "error", "text": str(e)})
-            return self._note(f"[ERREUR ARTIFACT] {e}")
+            self._note(f"[ERREUR ARTIFACT] {e}")
+            return False
         t.tools_used, n = True, len(art["versions"])
         t.spare()
         ev({"type": "artifact", "id": aid, "title": art["title"], "kind": art["kind"],
             "language": art["language"], "version": n, "content": art["versions"][-1]})
+        if not note:
+            return True
         # the history keeps a simple mention: the up-to-date content is given at the end of the context
         self._note(f"[ARTIFACT] \"{art['title']}\" (id {aid}) v{n} est affiché à l'utilisateur dans le panneau à droite. "
                    + self._disk_hint() + "Sinon, termine maintenant par une courte reply (sans recopier le code).")
@@ -1636,6 +1661,8 @@ class Session:
                         self._on_computer(t, args, ev)
                     elif name in INFO_TOOLS and t.step < t.max_steps:
                         self._on_info_tool(t, name, args, ev)
+                    elif name == "artifact" and t.step < t.max_steps and DISK_PATH.match(str(args.get("path") or "")):
+                        self._on_disk_artifact(t, args, ev)
                     elif name == "artifact" and t.step < t.max_steps:
                         if args.get("path") or args.get("project"):
                             self._on_project_file(t, args, ev)

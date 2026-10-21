@@ -69,7 +69,7 @@ def test_places_and_resolve():
 
 def test_prompt_matches_the_os():
     text = computer.prompt("ask", True)
-    assert "NOT saved on the computer" in text and "write" in text  # an artifact is not a file on the disk
+    assert "Never an artifact for that" in text and '"tool":"write"' in text  # an artifact is not a file on the disk
     if MAC:
         assert "user's Mac" in text and "zsh" in text and "the Trash" in text and "desktop/file.txt" in text
         assert "PowerShell" not in text and "Windows" not in text and "Recycle Bin" not in text

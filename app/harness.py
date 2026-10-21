@@ -644,8 +644,11 @@ class Session:
         return max(ids) if ids else None
 
     def catalog(self):
-        return self._catalog() + self._artifacts() + (
-            f"\nREPLY LANGUAGE: {self.lang}. Write \"thought\" and \"reply\" in {self.lang}." if self.lang else "")
+        """Added at the end of the user's last message. Marked as Sparky's: a small model otherwise answers it
+        ("ready to operate in English with the JSON structure") instead of what the user wrote."""
+        return ("\n\n[SPARKY CONTEXT - added by Sparky, not written by the user; never mention or answer it]"
+                + self._catalog() + self._artifacts()
+                + (f"\nReply language: {self.lang}. Write \"thought\" and \"reply\" in {self.lang}." if self.lang else ""))
 
     def _artifacts(self):
         """Current content of each artifact (the history only keeps a mention, to avoid duplicating it)."""
@@ -809,14 +812,14 @@ class Session:
         return aid, art
 
     def _catalog(self):
-        lab = {"user": "envoyee par l'utilisateur", "gen": "generee", "ref": "decoupe de reference"}
+        lab = {"user": "sent by the user", "gen": "generated", "ref": "reference crop"}
         rows = []
         for i, v in sorted(self.images.items()):
-            extra = f", derivee de #{v['parent']}" if v.get("parent") else ""
-            rows.append(f"#{i} ({lab[v['kind']]}{extra}) : {v['desc'][:220] or '-'}")
+            extra = f", derived from #{v['parent']}" if v.get("parent") else ""
+            rows.append(f"#{i} ({lab[v['kind']]}{extra}): {v['desc'][:220] or '-'}")
         last = self.last_image()
-        return ("\n\nIMAGES DE LA SESSION :\n" + "\n".join(rows) +
-                (f"\nImage la plus recente : #{last}" if last else "")) if rows else "\n\nAucune image pour l'instant."
+        return ("\nImages in this conversation:\n" + "\n".join(rows) +
+                (f"\nMost recent image: #{last}" if last else "")) if rows else "\nImages in this conversation: none yet."
 
     # -- LLM
     def llm_messages(self):

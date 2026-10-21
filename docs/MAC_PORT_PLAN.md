@@ -106,6 +106,12 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   folded; Trash (`/usr/bin/trash`, Finder fallback), `open`, `zsh` with a timeout that stops the whole process group,
   `/` + `/Volumes` disks, Mac prompt. Still to do in phase 4: screenshot permission message, UI texts ("Recycle Bin").
   Note: the macOS test sends `sparky-test-trash.txt` to the Trash on each local run.
+- **Fixes after the second real test (A, B, D, E, F, G) done.** Thinking spirals cut early (D); page crash on an artifact
+  that turns into a project file (E); an artifact with a disk path goes through computer write (F) and the prompt says
+  saving = write only (G); the context added to each message is marked as Sparky's (A); no imaginary image model (B).
+- **C, pending:** with no image model installed, leave the image-generation instructions out of the system prompt
+  (about half of its 11 000 characters): faster start, less to second-guess. Splits `prompt.md`, so measure the gain first.
+- Note: running tests while Sparky answers chats makes both slow on 16 GB (338 s instead of 25 s for the suite).
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
 - **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).

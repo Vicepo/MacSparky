@@ -1211,7 +1211,7 @@ function onEvent(e,live){
   if(e.type==='read'){setTicks(lastUser,'read');showTyping('réfléchit…');return}
   if(e.type==='typing'){
     if(T.rs?.open&&(e.thought||e.text)){T.rs.open=false;T.rs.querySelector('summary').innerHTML=IC.brain('#b9adff')+'Réflexion'}
-    if(e.action==='artifact'&&e.content!=null){hideTyping();if(e.path)projLive(e);else artLive(e);down();return}
+    if(e.action==='artifact'&&e.content!=null){hideTyping();if(projPath(e.path))projLive(e);else artLive(e);down();return}
     if(e.action==='reply'&&e.text!=null){hideTyping();if(!T.reply){T.reply=el('div','t cursor');A().append(T.reply)}T.reply.innerHTML=mdx(e.text)}
     else if(e.thought){hideTyping();if(!T.think){T.think=el('div','think cursor');A().append(T.think)}T.think.textContent=e.thought}
     down();return}
@@ -1261,7 +1261,11 @@ function artSrc(a,v){const s=a.versions[v];return a.kind==='svg'?'<!doctype html
 const ICO_DIR='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
 const projKind=a=>/\.html?$/.test(a.entry||'')?'web':/\.py$/.test(a.entry||'')?'py':'other';
 function projOf(e){const id=String(e.project||e.id||e.title||'projet').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'')||'projet';
-  return [id,ARTS[id]||(ARTS[id]={kind:'project',title:e.title||id,files:{},entry:null,version:0,cur:null,run:null})]}
+  const a=ARTS[id]||(ARTS[id]={kind:'project',title:e.title||id,files:{},entry:null,version:0,cur:null,run:null});
+  if(!a.files)Object.assign(a,{kind:'project',files:{},entry:null,version:0,cur:null,run:null});  // began as a plain artifact (its "path" came after its content)
+  return [id,a]}
+// a file inside a Sparky project ("css/style.css"); a path on the computer ("/Users/...", "~/...", "C:\\...") is not one
+const projPath=p=>!!p&&!/^(?:[\/~]|[A-Za-z]:[\\/]|%\w+%)/.test(String(p));
 function projCard(id){T.projCards=T.projCards||{};return T.projCards[id]||(T.projCards[id]=artCard(id))}
 function fillProj(c,a,writing){const n=Object.keys(a.files).length;c.innerHTML='<span class="ico">'+(writing?'<span class="sp"></span>':ICO_DIR)+'</span><span class="n"><b>'+esc(a.title)+'</b><small>'
   +(writing?'écrit '+esc(writing)+'…':n+(n>1?' fichiers':' fichier')+(a.entry?' · '+esc(a.entry):''))+'</small></span><span class="go2">Ouvrir ›</span>'}

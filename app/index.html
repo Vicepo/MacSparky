@@ -1067,7 +1067,7 @@ const EN_RX=[
  [/^Effacer toute la mémoire, le journal et l’historique de (.+) \?\nC’est définitif\.$/,'Erase all the memory, journal and history of $1?\nThis cannot be undone.'],
 ];
 const EN_PH=[['Mémoire unifiée (CPU + GPU partagent la même mémoire)','Unified memory (CPU + GPU share the same memory)'],[' — GPU alloué : ',' — GPU allocated: '],
- [' · RAM système : ',' · System RAM: '],[' cœurs',' cores'],['Calcul GPU','GPU compute'],['Processeur','Processor'],[' (unifiée avec le GPU)',' (unified with the GPU)'],
+ [' · RAM système : ',' · System RAM: '],[' — GPU (modèle) : ',' — GPU (model): '],[' · Système : ',' · System: '],[' · Libre : ',' · Free: '],[' cœurs',' cores'],['Calcul GPU','GPU compute'],['Processeur','Processor'],[' (unifiée avec le GPU)',' (unified with the GPU)'],
  [' · niveau ',' · level '],[' mots/s',' tok/s'],[' s par image',' s per image'],[' (mesuré)',' (measured)'],[' (estimé)',' (estimated)']];
 const TRM=new Map();  // translations already computed (the metrics alone change ~10 texts every 2 s)
 function trCore(t){let r=TRM.get(t);if(r===undefined){r=trCore0(t);if(TRM.size>4000)TRM.clear();TRM.set(t,r)}return r}
@@ -1169,10 +1169,17 @@ async function metrics(){try{const m=await(await fetch('/api/metrics')).json();c
   hist.cpu.push(m.cpu);hist.gpu.push(m.gpu.util??0);for(const k in hist)if(hist[k].length>30)hist[k].shift();
   spark($('sCpu'),hist.cpu,'#5aa9ff');spark($('sGpu'),hist.gpu,'#8c7cf0');
   $('vCpu').textContent=Math.round(m.cpu)+'%';$('vGpu').textContent=m.gpu.util!=null?Math.round(m.gpu.util)+'%':'–';
-  if(m.gpu.used!=null){const used=m.gpu.used/1024,tot=m.gpu.total/1024;$('bGpu').style.width=Math.min(100,used/tot*100)+'%';$('vMem').textContent=used.toFixed(0)+'/'+tot.toFixed(0)+' Go'}
-  else{$('bGpu').style.width=Math.min(100,m.ram.used/m.ram.total*100)+'%';$('vMem').textContent=m.ram.used.toFixed(0)+'/'+m.ram.total.toFixed(0)+' Go'}
-  $('gMem').title=(m.unified?'Mémoire unifiée (CPU + GPU partagent la même mémoire)':'Mémoire')+' — GPU alloué : '+(m.gpu.used!=null?(m.gpu.used/1024).toFixed(1)+' Go':'?')+' · RAM système : '+m.ram.used.toFixed(1)+'/'+m.ram.total.toFixed(1)+' Go'
-    +(m.gpu.temp!=null?' · '+m.gpu.temp+' °C':'')+(m.gpu.power!=null?' · '+m.gpu.power.toFixed(0)+' W':'');
+  const pc=v=>Math.min(100,v/m.ram.total*100)+'%',bR=$('bRam'),gt=(m.gpu.temp!=null?' · '+m.gpu.temp+' °C':'')+(m.gpu.power!=null?' · '+m.gpu.power.toFixed(0)+' W':'');
+  if(m.unified){  // one pool: the GPU (model) share is inside the system RAM in use, the rest of the bar is free
+    const g=Math.min(m.gpu.used!=null?m.gpu.used/1024:0,m.ram.total),used=Math.min(m.ram.total,Math.max(m.ram.used,g));
+    $('bGpu').style.width=pc(g);bR.style.left=pc(g);bR.style.width=pc(used-g);bR.style.opacity=1;
+    $('vMem').textContent=used.toFixed(0)+'/'+m.ram.total.toFixed(0)+' Go';
+    $('gMem').title='Mémoire unifiée (CPU + GPU partagent la même mémoire)'+' — GPU (modèle) : '+(m.gpu.used!=null?g.toFixed(1)+' Go':'?')
+      +' · Système : '+(used-g).toFixed(1)+' Go'+' · Libre : '+(m.ram.total-used).toFixed(1)+' Go'+gt}
+  else{bR.style.opacity=0;
+    if(m.gpu.used!=null){const used=m.gpu.used/1024,tot=m.gpu.total/1024;$('bGpu').style.width=Math.min(100,used/tot*100)+'%';$('vMem').textContent=used.toFixed(0)+'/'+tot.toFixed(0)+' Go'}
+    else{$('bGpu').style.width=pc(m.ram.used);$('vMem').textContent=m.ram.used.toFixed(0)+'/'+m.ram.total.toFixed(0)+' Go'}
+    $('gMem').title='Mémoire'+' — GPU alloué : '+(m.gpu.used!=null?(m.gpu.used/1024).toFixed(1)+' Go':'?')+' · RAM système : '+m.ram.used.toFixed(1)+'/'+m.ram.total.toFixed(1)+' Go'+gt}
   $('gCpu').title='Processeur'+(m.cores?' ('+m.cores+' cœurs)':'');
   $('vGpu').parentNode.title='Calcul GPU'+(m.gpuName?' ('+m.gpuName+')':'')+(m.gpu.temp!=null?' · '+m.gpu.temp+' °C':'')+(m.gpu.power!=null?' · '+m.gpu.power.toFixed(0)+' W':'');
  }catch{$('mLlm').className='mdl down';$('mImg').className='mdl down'}}

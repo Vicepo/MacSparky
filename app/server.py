@@ -4,7 +4,7 @@ Usage: python app\\server.py [--port 7860] [--no-llm]   (or start.bat)
 The assistant model, image model and settings are chosen in the UI (Settings).
 Generated projects are served on the next port (preview origin): they cannot reach the API.
 """
-import argparse, base64, io, json, os, re, shutil, subprocess, sys, threading, time, urllib.request
+import argparse, base64, io, json, os, re, shutil, subprocess, sys, threading, time, urllib.error, urllib.request
 import http.server, socketserver
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -58,16 +58,37 @@ def port_listening(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def listeners(port, name):
+    """Processes whose name contains `name` and that listen on `port`. macOS refuses the system-wide list
+    without root (AccessDenied): there, each candidate process is asked for its own sockets instead."""
+    try:
+        pids = {c.pid for c in psutil.net_connections("tcp")
+                if c.laddr and c.laddr.port == port and c.status == psutil.CONN_LISTEN and c.pid}
+        cands = [psutil.Process(pid) for pid in pids]
+        own = False
+    except psutil.AccessDenied:
+        cands, own = list(psutil.process_iter(["name"])), True
+    found = []
+    for p in cands:
+        try:
+            if name not in p.name().lower():
+                continue
+            if own and not any(c.laddr and c.laddr.port == port and c.status == psutil.CONN_LISTEN
+                               for c in p.net_connections("tcp")):
+                continue
+            found.append(p)
+        except psutil.Error:
+            pass
+    return found
+
+
 def stop_llm():
     """Stops llama-server (only it: another program may use the same port)."""
-    for c in psutil.net_connections("tcp"):
-        if c.laddr and c.laddr.port == config.LLM_PORT and c.status == psutil.CONN_LISTEN and c.pid:
-            try:
-                p = psutil.Process(c.pid)
-                if "llama" in p.name().lower():
-                    p.kill()
-            except psutil.Error:
-                pass
+    for p in listeners(config.LLM_PORT, "llama"):
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
     for _ in range(40):
         if not port_listening(config.LLM_PORT):
             return
@@ -76,14 +97,11 @@ def stop_llm():
 
 def stop_comfy():
     """Stops ComfyUI (only the python process that listens on its port)."""
-    for c in psutil.net_connections("tcp"):
-        if c.laddr and c.laddr.port == config.COMFY_PORT and c.status == psutil.CONN_LISTEN and c.pid:
-            try:
-                p = psutil.Process(c.pid)
-                if "python" in p.name().lower():
-                    p.kill()
-            except psutil.Error:
-                pass
+    for p in listeners(config.COMFY_PORT, "python"):
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
     for _ in range(40):
         if not port_listening(config.COMFY_PORT):
             return
@@ -140,6 +158,27 @@ def llm_ctx(m):
     return min(CTX_MAX, max(CTX_MIN, chosen)) if chosen else auto_ctx(m)
 
 
+def llm_env():
+    """llama-server answers only Sparky (API key), and no other website may read its answers (CORS).
+    Environment, not arguments: the key stays out of the process list, and an older llama.cpp that does not know
+    the CORS option ignores it instead of refusing to start."""
+    return os.environ | {"LLAMA_API_KEY": harness.llm_key(), "LLAMA_ARG_CORS_ORIGINS": f"http://127.0.0.1:{config.APP_PORT}"}
+
+
+def llm_protected():
+    """The running llama-server refuses requests without Sparky's key and accepts the key (else: an older,
+    unprotected session, or one started with another key)."""
+    def code(headers):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(harness.LLM + "/props", headers=headers), timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+        except OSError:
+            return 0
+    return code({}) == 401 and code(harness.llm_headers()) == 200
+
+
 def launch_llm(m):
     if not os.path.exists(config.LLAMA_SERVER):
         raise RuntimeError("llama-server introuvable : " + config.LLAMA_SERVER + f" (relance {config.INSTALLER})")
@@ -147,7 +186,7 @@ def launch_llm(m):
     gpu = syscheck.current()["assess"]["mode"] != "cpu"
     ctx = llm_state["ctx"] = llm_ctx(m)
     _spawn([config.LLAMA_SERVER, "-m", args[0], "--port", str(config.LLM_PORT), "-ngl", "99" if gpu else "0",
-            "-c", str(ctx), "--jinja", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", *args[1:]], LLM_LOG)
+            "-c", str(ctx), "--jinja", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", *args[1:]], LLM_LOG, env=llm_env())
     print("Assistant en cours de demarrage :", m["label"], f"(contexte {ctx})")
 
 
@@ -1222,8 +1261,11 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 def first_assistant():
     """Loads an assistant at startup (through the switch, so the UI shows the loading steps)."""
     if alive(harness.LLM + "/health"):  # llama-server still running from a previous session
-        llm_state["name"] = harness.SETTINGS["llm"]
-        return
+        if llm_protected():
+            llm_state["name"] = harness.SETTINGS["llm"]
+            return
+        print("Assistant sans protection (ancienne session) : redemarrage")
+        stop_llm()
     ok, rec = installed_llms(), syscheck.current().get("recommended", {}).get("llm")
     pick = next((i for i in (harness.SETTINGS["llm"], rec) if i in ok), ok[0] if ok else None)
     if pick:

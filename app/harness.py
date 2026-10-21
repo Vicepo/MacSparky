@@ -4,7 +4,7 @@ At each step the model answers with a JSON action (generate / edit / reply). Aft
 generation it receives the produced image (and the references used) to check it and
 fix it itself if needed, up to MAX_STEPS steps per message.
 """
-import base64, contextlib, io, json, os, random, re, threading, time, urllib.error, urllib.request, uuid
+import base64, contextlib, io, json, os, random, re, secrets, threading, time, urllib.error, urllib.request, uuid
 
 from PIL import Image, ImageDraw
 
@@ -66,6 +66,16 @@ ANNOUNCE = re.compile(
     r"modifier|corriger|cr[eé]er|relancer|ajouter|enlever|changer|mettre|tenter|retravailler|recommencer)"
     r"|je m'en occupe|je (re)?lance|je refais|je r?essaie"
     r"|i'?ll (try|make|generate|redo|push|fix|create|edit|change|add|remove|regenerate)|let me (try|redo|fix|generate))\b", re.I)
+# a reply saying a file is now on the user's computer (folder, desktop, path); checked against what really ran
+PLACE_EN = r"(?:folder|directory|desktop|documents|downloads|disk|computer|mac|pc)"
+PLACE_FR = r"(?:dossier|r[ée]pertoire|bureau|documents|t[ée]l[ée]chargements|disque|ordinateur|mac|pc)"
+DISK_CLAIM = re.compile(
+    r"\b(?:saved|created|placed|written|stored|copied|moved)\b(?:[^.\n]|\.(?=\w)){0,60}?\b(?:in|to|into|on|at)\s+(?:(?:the|your|this|that)\s+)?"
+    r"(?:[\w~/\-. ]{0,40}?\b" + PLACE_EN + r"\b|[~/][\w/.\-]+)"
+    r"|\b(?:is|are|now|ready)\b[^.\n]{0,15}?\bin\s+(?:the|your|this)\s+[\w~/\-. ]{0,40}?\b(?:folder|directory)\b"
+    r"|\b(?:(?:enregistr|sauvegard|cr[ée]|plac|copi|d[ée]plac)(?:é|ée|és|ées)|[ée]crite?s?|mise?s?)\b(?:[^.\n]|\.(?=\w)){0,60}?\b(?:dans|sur|sous)\s+"
+    r"(?:(?:le|la|les|ton|ta|tes|votre|vos|ce|cet|mon)\s+)?(?:[\w~/\-. ]{0,40}?\b" + PLACE_FR + r"\b|[~/][\w/.\-]+)"
+    r"|\b(?:est|sont|maintenant|pr[eê]te?s?)\b[^.\n]{0,15}?\bdans\s+(?:le|ton|votre|ce)\s+[\w~/\-. ]{0,40}?\bdossier\b", re.I)
 LOCATE = {"face": "the face of {t} (tight box around the head, hair included)",
           "character": "the head and upper body of {t} (hair and clothes, without furniture)"}
 NEGATIVE = "blurry, low quality, deformed, bad anatomy, extra fingers, extra limbs, watermark, text"
@@ -94,9 +104,41 @@ def system_prompt():
 
 
 # ---------------------------------------------------------------- utilities
-def http_json(url, payload=None, timeout=900):
+LLM_KEY_FILE = os.path.join(DATA, "llm.key")
+_llm_key = {"v": None}
+_llm_key_lock = threading.Lock()
+
+
+def llm_key():
+    """Secret shared by Sparky and its llama-server. Without it, another program or a web page open in the browser
+    cannot use the local model: llama-server then answers 401 to everything but /health.
+    Kept in data/llm.key (owner-only) so a llama-server still running from a previous session stays usable."""
+    with _llm_key_lock:
+        if _llm_key["v"] is None:
+            try:
+                with open(LLM_KEY_FILE, encoding="utf-8") as f:
+                    key = f.read().strip()
+            except OSError:
+                key = ""
+            if len(key) < 32:
+                key = secrets.token_urlsafe(32)
+                os.makedirs(DATA, exist_ok=True)
+                tmp = f"{LLM_KEY_FILE}.{os.getpid()}.tmp"
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(key)
+                os.replace(tmp, LLM_KEY_FILE)
+            _llm_key["v"] = key
+        return _llm_key["v"]
+
+
+def llm_headers():
+    return {"Content-Type": "application/json", "Authorization": "Bearer " + llm_key()}
+
+
+def http_json(url, payload=None, timeout=900, headers=None):
     data = None if payload is None else json.dumps(payload).encode()
-    req = urllib.request.Request(url, data, {"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data, headers or {"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r)
@@ -113,8 +155,7 @@ def cloud_model():
 
 def llama_deltas(body):
     """Streams llama-server's answer: yields (text, reasoning) pieces."""
-    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body | {"stream": True}).encode(),
-                                 {"Content-Type": "application/json"})
+    req = urllib.request.Request(LLM + "/v1/chat/completions", json.dumps(body | {"stream": True}).encode(), llm_headers())
     with urllib.request.urlopen(req, timeout=900) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -146,7 +187,7 @@ def chat_once(body):
     if m:
         import cloud
         return cloud.complete(m, body["messages"], body.get("max_tokens", 900), json_mode=bool(body.get("response_format")))
-    return http_json(LLM + "/v1/chat/completions", body)["choices"][0]["message"]["content"] or ""
+    return http_json(LLM + "/v1/chat/completions", body, headers=llm_headers())["choices"][0]["message"]["content"] or ""
 
 
 def fit_1mp(im):
@@ -897,6 +938,8 @@ class Session:
         t.tools_used = True
         try:
             out = computer.RUN[tool](args)
+            if computer.TOOLS[tool][0] != "read":
+                t.disk_written = True
         except Exception as e:
             ev({"type": "cresult", "ok": False, "text": f"{type(e).__name__} : {e}"})
             return self._note(f"[ERREUR ORDINATEUR {tool}] {type(e).__name__} : {e}. Corrige (chemin, arguments) ou explique à l'utilisateur.")
@@ -1390,7 +1433,8 @@ class Session:
             "entry": p["entry"], "version": p["version"]})
         if t.test_rounds and SETTINGS.get("autotest", True):  # fixing: re-test right after each fix (~5 s)
             return self._retest(t, pid, ev)
-        self._note(f"[PROJET] « {p['title']} » (project {pid}) : {path} enregistré. Fichiers : {', '.join(p['files'])} "
+        self._note(f"[PROJET] « {p['title']} » (project {pid}) : {path} enregistré dans le projet (panneau de Sparky, pas sur "
+                   f"l'ordinateur). Fichiers : {', '.join(p['files'])} "
                    f"(entry {p['entry']}). S'il manque des fichiers référencés (CSS, JS, modules…), envoie le suivant avec "
                    "le même project. Sinon termine par une courte reply (sans recopier le code).")
 
@@ -1419,7 +1463,20 @@ class Session:
             "language": art["language"], "version": n, "content": art["versions"][-1]})
         # the history keeps a simple mention: the up-to-date content is given at the end of the context
         self._note(f"[ARTIFACT] \"{art['title']}\" (id {aid}) v{n} est affiché à l'utilisateur dans le panneau à droite. "
-                   "Termine maintenant par une courte reply (sans recopier le code).")
+                   + self._disk_hint() + "Sinon, termine maintenant par une courte reply (sans recopier le code).")
+
+    def _disk_hint(self):
+        """After an artifact or a project file: it is only in Sparky's panel, never on the user's disk. Small models
+        otherwise reply "your script is in your folder" (nothing was written). Computer mode can write it for real."""
+        import computer
+        level = self.config.get("computer") or "off"
+        if computer.needs_approval(level, "write") != "deny":
+            return ("Il est UNIQUEMENT dans ce panneau, PAS sur l'ordinateur. Si l'utilisateur a demandé ce fichier dans un dossier "
+                    "de son ordinateur, appelle maintenant computer write avec le chemin complet et le contenu COMPLET. ")
+        return ("Il est UNIQUEMENT dans ce panneau, PAS sur l'ordinateur (mode Ordinateur "
+                + ("en lecture seule" if level == "read" else "désactivé") + " dans cette conversation). Si l'utilisateur voulait "
+                "ce fichier dans un dossier, dis-le honnêtement : tu ne peux pas l'écrire sur son ordinateur ici ; il peut le copier "
+                "ou le télécharger depuis le panneau, ou activer le mode Ordinateur (pastille Ordinateur) pour que tu l'écrives. ")
 
     def _reply_nudge(self, t, text):
         """Why this reply cannot be sent yet (empty, announces an action not done, missing files, repeated)."""
@@ -1431,6 +1488,14 @@ class Session:
         if t.step < t.max_steps and (miss := self.missing_files(t.touched)):
             return (f"[PROJET] Ces fichiers sont utilisés mais n'existent pas encore : {', '.join(miss)}. "
                     "Envoie-les maintenant (même project, contenu complet), puis termine par une reply.")
+        if t.step < t.max_steps and not t.disk_written and DISK_CLAIM.search(text):
+            import computer
+            can = computer.needs_approval(self.config.get("computer") or "off", "write") != "deny"
+            return ("[HONESTY] Your reply says a file is saved on the user's computer, but nothing was written on the computer in "
+                    "this message (an artifact is only in Sparky's panel). "
+                    + ("Call computer write now with the full path and the COMPLETE content, then reply." if can else
+                       "Computer mode cannot write in this conversation: rewrite the reply honestly (the file is in the panel, "
+                       "the user can copy or download it, or turn on Computer mode so you can write it)."))
         if text.strip() in t.past_replies:
             return "[REPEAT] This exact reply was already sent earlier. Write a new reply that describes THIS result honestly."
         return None
@@ -1595,6 +1660,7 @@ class _Turn:
         self.nudges, self.tools_used, self.replied = 0, False, False
         self.info = 0          # read-only tool calls (search, fetch, docs, MCP)
         self.computer = 0      # computer-mode actions
+        self.disk_written = False  # a computer tool changed something on the disk (write, copy, move...) this turn
 
     def spare(self):
         if self.free < 60:

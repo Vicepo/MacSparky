@@ -91,10 +91,21 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   and memory, no sudo) instead of RAM only; llama.cpp macOS builds are `.tar.gz` with a sha256 digest (checked).
 
 ### Pending / to review
-- **Security (also on Windows, upstream):** llama-server runs with no API key and `CORS: *`, so any web page open in
-  the browser can use the local model on `127.0.0.1:8080` and read its answers (`/slots` does not expose conversation
-  text). Options: `--cors-origins` limited to Sparky (cheap; requests still run, answers cannot be read), or `--api-key`
-  plus the key in harness / companion / openai_api (complete). Decision needed.
+- ~~**Security (also on Windows, upstream):** llama-server ran with no API key and `CORS: *`~~ **fixed**: Sparky
+  gives llama-server a random key (`data/llm.key`, owner-only, passed through the environment) and limits CORS to
+  Sparky's origin; an unprotected llama-server left from an older session is restarted. Only `/health` stays open.
+  Worth reporting upstream (`anisayari/sparky`).
+- ~~**macOS:** `psutil.net_connections()` needs root~~ **fixed**: `stop_llm` / `stop_comfy` crashed with AccessDenied,
+  so switching or restarting the assistant failed on a Mac; they now ask each candidate process for its own sockets.
+- ~~**Computer mode said "done" without doing it**~~ **fixed**: the small model put the script in an artifact (Sparky's
+  panel only) and replied "your script is in your folder". The prompt and the post-artifact note now say an artifact is
+  not on the disk and point to `write`; a reply claiming a file is on the computer with no real write this turn is sent
+  back to the model (`DISK_CLAIM`, at most twice). Live on Qwen3.5 4B: 2/3 runs wrote the file after approval, 3/3 honest.
+- **Phase 4 (security part) done early:** macOS protected folders (`/System`, `/Library`, `/Applications`, `/usr`, `/opt`,
+  `/private`, `/etc`, `/var`..., `~/Library`, every hidden file of the home folder, disk roots), symlinks resolved and case
+  folded; Trash (`/usr/bin/trash`, Finder fallback), `open`, `zsh` with a timeout that stops the whole process group,
+  `/` + `/Volumes` disks, Mac prompt. Still to do in phase 4: screenshot permission message, UI texts ("Recycle Bin").
+  Note: the macOS test sends `sparky-test-trash.txt` to the Trash on each local run.
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
 - **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).

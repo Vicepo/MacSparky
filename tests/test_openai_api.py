@@ -11,7 +11,13 @@ class FakeLlama(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        import harness
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+        if self.headers.get("Authorization") != "Bearer " + harness.llm_key():  # like llama-server started by Sparky
+            self.send_response(401)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.server.requests.append(body)
         if not body.get("stream"):
             out = json.dumps({"id": "x", "object": "chat.completion", "created": 1, "model": "gguf",

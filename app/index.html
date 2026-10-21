@@ -54,7 +54,8 @@ body.closed #open,body.closed #new2{display:grid}
 .gauge b{font-weight:500;color:var(--txt);min-width:30px;text-align:right}
 .bar{width:44px;height:5px;border-radius:3px;background:var(--s3);overflow:hidden;position:relative}
 .bar span{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--blue)}
-.bar span.g{background:#8c7cf0}
+.bar span.g{background:#8c7cf0;z-index:1}
+.bar.split span.g{border-radius:0}  /* unified memory: the system share runs under the GPU one, one rounded end */
 @media(max-width:1100px){#mon .spark{display:none}}
 @media(max-width:860px){#mon .gauge{display:none}}
 
@@ -1169,10 +1170,10 @@ async function metrics(){try{const m=await(await fetch('/api/metrics')).json();c
   hist.cpu.push(m.cpu);hist.gpu.push(m.gpu.util??0);for(const k in hist)if(hist[k].length>30)hist[k].shift();
   spark($('sCpu'),hist.cpu,'#5aa9ff');spark($('sGpu'),hist.gpu,'#8c7cf0');
   $('vCpu').textContent=Math.round(m.cpu)+'%';$('vGpu').textContent=m.gpu.util!=null?Math.round(m.gpu.util)+'%':'–';
-  const pc=v=>Math.min(100,v/m.ram.total*100)+'%',bR=$('bRam'),gt=(m.gpu.temp!=null?' · '+m.gpu.temp+' °C':'')+(m.gpu.power!=null?' · '+m.gpu.power.toFixed(0)+' W':'');
+  const pc=v=>Math.min(100,v/m.ram.total*100)+'%',bR=$('bRam');bR.parentNode.classList.toggle('split',!!m.unified);const gt=(m.gpu.temp!=null?' · '+m.gpu.temp+' °C':'')+(m.gpu.power!=null?' · '+m.gpu.power.toFixed(0)+' W':'');
   if(m.unified){  // one pool: the GPU (model) share is inside the system RAM in use, the rest of the bar is free
     const g=Math.min(m.gpu.used!=null?m.gpu.used/1024:0,m.ram.total),used=Math.min(m.ram.total,Math.max(m.ram.used,g));
-    $('bGpu').style.width=pc(g);bR.style.left=pc(g);bR.style.width=pc(used-g);bR.style.opacity=1;
+    $('bGpu').style.width=pc(g);bR.style.width=pc(used);bR.style.opacity=1;
     $('vMem').textContent=used.toFixed(0)+'/'+m.ram.total.toFixed(0)+' Go';
     $('gMem').title='Mémoire unifiée (CPU + GPU partagent la même mémoire)'+' — GPU (modèle) : '+(m.gpu.used!=null?g.toFixed(1)+' Go':'?')
       +' · Système : '+(used-g).toFixed(1)+' Go'+' · Libre : '+(m.ram.total-used).toFixed(1)+' Go'+gt}

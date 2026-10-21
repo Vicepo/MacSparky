@@ -164,3 +164,21 @@ def test_computer_prompt_says_write_only_never_an_artifact():
     import computer
     text = computer.prompt("ask", True)
     assert "use ONLY" in text and "Never an artifact for that" in text and "you may also show it as an artifact" not in text
+
+
+# B: with no image model, the assistant was told "Current image model: Qwen3.8 27B" (an assistant, not an image model)
+def test_no_image_model_is_said_plainly(monkeypatch):
+    import catalog
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", None)
+    assert harness.image_model()["label"] == "aucun"
+    assert all(harness.image_model()["label"] != m["label"] for m in catalog.CATALOG if m["kind"] != "image")
+    text = harness.system_prompt()
+    assert "Current image model: none installed. You cannot generate or edit images now" in text
+
+
+def test_an_installed_image_model_is_named(monkeypatch):
+    import catalog
+    img = next(m for m in catalog.CATALOG if m["kind"] == "image" and m.get("ckpt"))
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", img["ckpt"])
+    assert harness.image_model()["label"] == img["label"]
+    assert f"Current image model: {img['label']} (" in harness.system_prompt()

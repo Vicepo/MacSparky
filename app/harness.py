@@ -100,8 +100,10 @@ IMAGE MODEL = {label} — these rules REPLACE the SDXL-specific ones above (weig
 def system_prompt():
     """Re-read on every call: prompt.md can be tweaked without restarting."""
     m = image_model()
-    info = f"{m['label']} ({m.get('style') or 'general'} style)"
-    base = open(PROMPT_FILE, encoding="utf-8").read() + "\nCurrent image model: " + info + "."
+    info = (f"{m['label']} ({m.get('style') or 'general'} style)." if SETTINGS["ckpt"] else
+            "none installed. You cannot generate or edit images now: if the user asks for one, say so and tell them to "
+            "install an image model (Settings > Model library).")
+    base = open(PROMPT_FILE, encoding="utf-8").read() + "\nCurrent image model: " + info
     if m.get("engine") in INSTRUCT:
         base += QWEN_NOTES.replace("{label}", m["label"].upper())
     return base
@@ -239,10 +241,12 @@ def comfy_file(im, prefix):
 
 
 def image_model():
-    """Catalog entry of the active image model (engine 'sdxl' or 'qwen21')."""
+    """Catalog entry of the active image model (engine 'sdxl' or 'qwen21'). Only image entries match: with no image
+    model chosen (ckpt None) the first catalog entry without a checkpoint, an assistant, used to be returned."""
     import catalog
-    m = next((c for c in catalog.CATALOG if c.get("ckpt") == SETTINGS["ckpt"]), None)
-    return m or {"engine": "sdxl", "ckpt": SETTINGS["ckpt"], "label": SETTINGS["ckpt"] or "aucun"}
+    ck = SETTINGS["ckpt"]
+    m = next((c for c in catalog.CATALOG if c.get("kind") == "image" and c.get("ckpt") == ck), None) if ck else None
+    return m or {"engine": "sdxl", "ckpt": ck, "label": ck or "aucun"}
 
 
 def build_qwen(prompt, seed, size=None, images=(), lora=None, steps=25):

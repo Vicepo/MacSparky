@@ -228,9 +228,10 @@ Merge memories that say the same thing (keep the most complete, precise and rece
 the user or that only repeat something the assistant said, and keep past events phrased in the past.
 Given the recent messages, your previous summary and ALL current memories about the user, return ONLY JSON:
 {{"summary":"updated summary of your relationship and conversations so far (max 6 sentences, factual)",
-"journal":"a short diary entry in first person as {name} (2-3 sentences, warm, in the user's language) about today's conversations",
+"journal":"a short diary entry in first person as {name} (2-3 sentences, warm, in {lang}) about today's conversations",
 "checkin":"one thing to follow up on next time (e.g. ask how the job interview went), or empty",
-"merge":[{{"ids":[1,2],"text":"one merged memory"}}],"delete":[ids of memories that are wrong, trivial or duplicated]}}"""
+"merge":[{{"ids":[1,2],"text":"one merged memory"}}],"delete":[ids of memories that are wrong, trivial or duplicated]}}
+Every text value (summary, journal, checkin, merged memories) must be written in {lang}."""
 
 
 def reflect(force=False):

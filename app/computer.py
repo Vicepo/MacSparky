@@ -481,9 +481,11 @@ def prompt(level, vision):
             "full": "Actions run immediately without asking: be careful, act only on what the user asked."}[level]
     mac = MAC
     example = "desktop/file.txt" if mac else "desktop\\file.txt"
-    return (f"COMPUTER MODE: you can act on the user's {'Mac' if mac else 'Windows PC'} with the action \"computer\": "
-            "{\"action\":\"computer\",\"args\":{\"tool\":\"<tool>\", ...tool args}}. One tool per answer; you get the result, then continue "
-            "or reply. " + rule + "\nTools:\n" + "\n".join(tools) +
+    return (f"COMPUTER MODE: you can act on the user's {'Mac' if mac else 'Windows PC'} with the action \"computer\". It is one more "
+            "action of the same JSON object as above: {\"thought\":\"...\",\"action\":\"computer\",\"args\":{\"tool\":\"<tool>\", "
+            "...tool args}} (\"notes\" only right after you saw an image). One tool per answer; you get the result, then continue "
+            "or reply. A request with several steps (create a file, then run it...): do the FIRST step now, the next one after its "
+            "result; do not plan every step in your thinking. " + rule + "\nTools:\n" + "\n".join(tools) +
             f"\nUser folders: home {pl['home']}, desktop {pl['desktop']}, documents {pl['documents']}, downloads {pl['downloads']} "
             f"(you can also write {example}). "
             "SAVING A FILE ON THE COMPUTER = the write tool with the full path and the COMPLETE content. An artifact is only shown in "

@@ -21,6 +21,10 @@ QWEN = {"unet": "qwen_image_2.1_int8_convrot.safetensors", "clip": "qwen3vl_8b_i
 DATA = config.DATA
 # thinking level -> (effort passed to the model, thinking budget in tokens)
 THINK = {"off": (None, 0), "low": ("low", 1024), "medium": ("medium", 4096), "high": ("high", 12000)}
+# thinking that keeps restarting ("Wait, ... Wait, ..."): small models can ruminate until the whole budget is spent
+# (minutes on a laptop). Sentence-initial hesitations are counted; past MAX_HESITATIONS the answer is asked directly.
+HESITATION = re.compile(r"(?:^|\n|[.!?]\s)\s*(?:[*-]\s*)?(?:but\s+)?(?:wait|actually|hmm+|hold on|attends|en fait)\b", re.I)
+MAX_HESITATIONS = 6
 ACTIVITY = {"llm": 0, "image": 0}  # number of requests in progress (for the UI monitor)
 
 
@@ -1080,7 +1084,7 @@ class Session:
                 "stream": True, "response_format": {"type": "json_object"}, "chat_template_kwargs": kw}
         if dry:  # llama.cpp anti-repetition, only after a loop (it can hurt legitimately repetitive code)
             body |= {"dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 6, "temperature": 0.7}
-        t, rs, last, t0, t_rs, chk, looped = "", "", 0.0, time.time(), None, 0, False
+        t, rs, last, t0, t_rs, chk, looped, dithered = "", "", 0.0, time.time(), None, 0, False, False
         js = {"pos": 0, "depth": 0, "str": False, "esc": False, "done": False}
         with busy("llm"), contextlib.closing(chat_deltas(body, think)) as deltas:
             for piece, reasoning in deltas:
@@ -1092,6 +1096,9 @@ class Session:
                     self._read = True
                     self._emit({"type": "read"})
                 if budget and not t and len(rs) > budget * 4:  # ~4 characters per token: budget exceeded
+                    break
+                if reasoning and not t and len(rs) > 1500 and len(HESITATION.findall(rs)) >= MAX_HESITATIONS:
+                    dithered = True  # going round in circles: stop thinking, answer directly (below)
                     break
                 if json_closed(t, js):  # complete JSON object: the rest (whitespace, chatter) is useless
                     break
@@ -1112,8 +1119,9 @@ class Session:
             return self.ask_llm(retry, think, dry=True)
         if rs:  # keep in the conversation history (shown again on reopen)
             self._ev({"type": "reasoned", "secs": round(t_rs or time.time() - t0), "text": rs[-6000:]})
-        if effort and not t.strip():  # thinking too long: direct answer
-            self._emit({"type": "status", "text": "réflexion trop longue, réponse directe"})
+        if effort and not t.strip():  # thinking too long or going round in circles: direct answer
+            self._emit({"type": "status", "text": "la réflexion tournait en rond, réponse directe" if dithered
+                        else "réflexion trop longue, réponse directe"})
             return self.ask_llm(retry, think="off")
         try:  # last raw output, for diagnostics
             open(os.path.join(DATA, "last_llm.txt"), "w", encoding="utf-8").write(t)

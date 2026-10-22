@@ -4,7 +4,7 @@ Usage: python app\\server.py [--port 7860] [--no-llm]   (or start.bat)
 The assistant model, image model and settings are chosen in the UI (Settings).
 Generated projects are served on the next port (preview origin): they cannot reach the API.
 """
-import argparse, base64, io, json, os, re, shutil, subprocess, sys, threading, time, urllib.error, urllib.request
+import argparse, base64, contextlib, io, json, os, re, shutil, subprocess, sys, threading, time, urllib.error, urllib.request
 import http.server, socketserver
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -135,9 +135,40 @@ def start_comfy():
     """Starts ComfyUI (image generation) if it isn't already running."""
     if port_listening(config.COMFY_PORT) or not os.path.exists(os.path.join(config.COMFY_DIR, "main.py")):
         return
-    _spawn([sys.executable, "main.py", "--listen", "127.0.0.1", "--port", str(config.COMFY_PORT)],
-           os.path.join(config.DATA, "comfy.log"), cwd=config.COMFY_DIR)
+    cmd, env = [sys.executable, "main.py", "--listen", "127.0.0.1", "--port", str(config.COMFY_PORT)], None
+    if config.IS_MAC:  # an operation missing on MPS runs on the CPU instead of failing; SDPA: steadier, ~0.5 GB less (M3)
+        cmd.append("--use-pytorch-cross-attention")
+        env = os.environ | {"PYTORCH_ENABLE_MPS_FALLBACK": "1"}
+    _spawn(cmd, os.path.join(config.DATA, "comfy.log"), cwd=config.COMFY_DIR, env=env)
     print("ComfyUI en cours de demarrage")
+
+
+def comfy_has(node):
+    """True once ComfyUI answers and knows this node (custom nodes load only when ComfyUI starts)."""
+    try:
+        return node in harness.http_json(harness.COMFY + "/object_info/" + node, timeout=5)
+    except Exception:
+        return False
+
+
+def restart_comfy_for(node):
+    """A custom node installed while ComfyUI was running (ComfyUI-GGUF with a Mac model): restart ComfyUI to load it."""
+    for _ in range(120):  # ComfyUI may still be starting: wait for its answer before deciding
+        if comfy_has(node):
+            return
+        if not port_listening(config.COMFY_PORT):
+            break
+        try:
+            harness.http_json(harness.COMFY + "/system_stats", timeout=5)
+            break  # up, without the node
+        except Exception:
+            time.sleep(0.5)
+    restart_comfy()
+    for _ in range(240):
+        if comfy_has(node):
+            return
+        time.sleep(0.5)
+    raise RuntimeError(f"ComfyUI ne charge pas {node} (extension ComfyUI-GGUF) : voir data/comfy.log")
 
 
 def installed_llms():
@@ -150,6 +181,8 @@ CTX_MIN, CTX_MAX = 4096, 262144
 def auto_ctx(m):
     """Largest comfortable context for this model: depends on the memory left once the model is loaded."""
     spare = psutil.virtual_memory().total / 2**30 - m.get("size_gb", 0)
+    if config.IS_MAC and harness.SETTINGS.get("ckpt"):  # unified memory: the image model shares it (~8 GB on an M3)
+        spare -= syscheck.current()["assess"]["image_gb"]
     return 65536 if spare >= 12 else 32768 if spare >= 6 else 16384
 
 
@@ -247,6 +280,11 @@ def _switch_llm(mid, m):
     switch["eta"] = round(m["size_gb"] * 1.3 + 6)
     launch_llm(m)
     _step(f"Charge {m['label']}")
+    _wait_llm()
+    llm_state["name"] = harness.SETTINGS["llm"] = mid  # only once it answers
+
+
+def _wait_llm():
     t0 = time.time()
     while not alive(harness.LLM + "/health"):
         if time.time() - t0 > 15 and not port_listening(config.LLM_PORT):
@@ -257,13 +295,22 @@ def _switch_llm(mid, m):
             stop_llm()
             raise RuntimeError("chargement trop long")
         time.sleep(0.5)
-    llm_state["name"] = harness.SETTINGS["llm"] = mid  # only once it answers
 
 
 def _switch_image(m):
     _step("Décharge l'ancien modèle d'image")
     free_comfy_memory(15)
+    if m.get("gguf"):
+        _step("Prépare ComfyUI pour les fichiers GGUF")
+        restart_comfy_for("UnetLoaderGGUF")
     harness.SETTINGS["ckpt"] = m["ckpt"]
+    cur = LLMS.get(llm_state["name"] or "")
+    if config.IS_MAC and cur and not cur.get("cloud") and llm_state["ctx"] > llm_ctx(cur):
+        # unified memory: the assistant restarts once with a smaller context, so both models fit (porting plan 3.5)
+        _step("Redémarre l'assistant avec moins de contexte")
+        stop_llm()
+        launch_llm(cur)
+        _wait_llm()
     switch["eta"] = 25
     _step(f"Charge {m['label']}")
     if m.get("engine") in harness.INSTRUCT:
@@ -275,6 +322,8 @@ def _switch_image(m):
     warm["20"] = {"class_type": "PreviewImage", "inputs": {"images": warm["20"]["inputs"]["images"]}}
     with harness.busy("image"):
         harness._comfy_run(warm)  # tiny first image: forces the checkpoint to load
+    if small_mac():  # the check is done: leave the memory to the assistant until the first image (room_for_image)
+        free_comfy_memory(15)
 
 
 def _switch(mid):
@@ -478,6 +527,33 @@ def pause_llm_for_video(m):
     llm_state["name"] = None
     stop_llm()
     print("Assistant en pause pendant la video")
+
+
+def small_mac():
+    """Mac with 24 GB or less: the image model and the local assistant don't fit together while an image is made."""
+    return config.IS_MAC and harness.IMAGE_MP < 1
+
+
+@contextlib.contextmanager
+def room_for_image(graph):
+    """Small Mac: measured on a 16 GB M3 with a few apps open, 12.3 GB were in use before the image (Klein + assistant)
+    and memory pressure went critical seconds into a plain generation (an edit: 10 -> 15.3 GB). So the local assistant
+    stops during each image, the image model is unloaded after it (it reloads in seconds from the disk cache), and the
+    assistant is back before it looks at the result. Graph unused: every image needs the room."""
+    cur = LLMS.get(llm_state["name"] or "")
+    if not small_mac() or not cur or cur.get("cloud") or llm_state.get("paused"):
+        yield
+        return
+    llm_state["paused"], llm_state["name"] = llm_state["name"], None
+    stop_llm()
+    try:
+        yield
+    finally:
+        free_comfy_memory(30)
+        prev, llm_state["paused"] = llm_state["paused"], None
+        launch_llm(cur)
+        _wait_llm()
+        llm_state["name"] = prev
 
 
 def resume_llm_after_video():
@@ -1307,6 +1383,7 @@ def main():
     threading.Thread(target=mcp.start_all, daemon=True).start()
     scheduler.start(run_scheduled)
     studio.hooks.update(before_video=pause_llm_for_video, after_queue=resume_llm_after_video)
+    harness.HOOKS["around_image"] = room_for_image
     preview = Server(("127.0.0.1", config.PREVIEW_PORT), PreviewHandler)
     threading.Thread(target=preview.serve_forever, daemon=True).start()
     print(f"Sparky {updater.current()} : http://127.0.0.1:{a.port}")

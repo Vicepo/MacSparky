@@ -4,6 +4,26 @@ Parent plan: [MAC_PORT_PLAN.md](MAC_PORT_PLAN.md), phase 3. Target: **Apple M3, 
 Same rule as the parent plan: keep the Windows code, add small `config.IS_MAC` branches in one place per
 difference, so `git merge upstream/main` stays easy. Each work item ends with tests green on macOS and a commit.
 
+## 0. Results (2026-10-22) and changes vs. this plan
+
+Numbers: MAC_PORT_PLAN.md, phase 3. What was done differently from the sections below, and why:
+- **Klein only.** SDXL was tested afterwards (Juggernaut): it doesn't fit on a 16 GB Mac (critical memory pressure as
+  soon as the checkpoint loads, before S1's first step), so S2–S4 were not reached. Tagged "too big for this Mac".
+- **Nothing is hidden, only Klein is recommended:** `validated_here()` (engines in `MAC_ENGINES = ("klein",)`, no FP8/FP4
+  file) decides the recommendation; every other image / video model stays installable with a tag (`mac_note()`:
+  "not tested on a Mac", or "FP8: fails on a Mac"). A first version hid them; shown again at the user's request.
+- **Q8_0 only from 32 GB** (critical pressure on 16 GB); **image size 768x768-equivalent** (0.56 MP) on Macs with 24 GB
+  or less (`harness.IMAGE_MP`), the same for the chat, Studio, edits and references.
+- **The assistant pauses during each image on Macs with 24 GB or less** (`server.room_for_image`): the plan expected both
+  models to fit with a smaller context; live, they didn't (critical pressure). The context still drops to 16 384.
+- **ComfyUI-GGUF is installed with the model** (the user's Install click on Klein, its description says so), pinned, not
+  through a separate question. Switching to Klein restarts ComfyUI if the extension isn't loaded yet.
+- **Dictation on MPS was already in place** (taken from upstream PR #1); the check found no fp16 problem.
+- **Speed estimate on a Mac: 80 s** (between a cool and a warm Air), replaced by the measured speed after one image.
+- **The system scan has a version** (`syscheck.SCAN_VERSION`): a scan saved before this change still said "images not
+  validated on a Mac" and recommended no image model.
+- Spike scripts stayed in the scratchpad (not in the repo), as planned.
+
 ## 1. Where things stand (checked on 2026-10-22)
 
 **Runtime on the M3**

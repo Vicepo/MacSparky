@@ -33,6 +33,8 @@ if ! up; then
   if ! up; then
     echo "Sparky did not start: see $ROOT/data/server.err.log" >&2
     tail -n 15 "$ROOT/data/server.err.log" >&2
+    # opened from Sparky.app there is no Terminal: say it in a dialog
+    [ -t 1 ] || osascript -e 'display alert "Sparky did not start" message "See data/server.err.log in the Sparky folder."' >/dev/null 2>&1
     exit 1
   fi
 fi

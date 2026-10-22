@@ -304,6 +304,8 @@ def _run(job):
         job["status"] = "image"
         m = harness.image_model()
         size = IMAGE_SIZES.get(job["aspect"], IMAGE_SIZES["1:1"])
+        if harness.IMAGE_MP < 1:  # small Mac: same framing, fewer pixels
+            size = harness.mp_size(*size)
         if m.get("engine") in harness.INSTRUCT:
             g = harness.build_instruct(m, prompt, seed, size=size, images=[src] if src else ())
         else:

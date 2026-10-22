@@ -66,8 +66,29 @@ def qwen_image(id, label, quality, desc=""):
             "files": files, "size_gb": 16.1, "desc": desc, "ckpt": id, "lora": None, "repo": QI, "est_secs": 40}
 
 
+KLEIN_GGUF, QWEN3_GGUF = "unsloth/FLUX.2-klein-4B-GGUF", "unsloth/Qwen3-4B-GGUF"
+
+
+def klein_mac():
+    """Mac: Apple GPUs (MPS) can't read FP8/FP4, so GGUF files read by ComfyUI-GGUF. Measured on a 16 GB M3 (MacBook Air,
+    no fan): Q4_K_M ~8 GB during an image, 55 s at 768x768 when cool, 75-105 s once warm; Q8_0 pushed memory pressure to
+    critical. Q8_0 from 32 GB only."""
+    import psutil
+    q = "Q8_0" if psutil.virtual_memory().total / 2**30 >= 30 else "Q4_K_M"
+    unet, te = f"flux-2-klein-4b-{q}.gguf", f"Qwen3-4B-{q}.gguf"
+    files = [(KLEIN_GGUF, unet, os.path.join(CM, "diffusion_models", unet)),
+             (QWEN3_GGUF, te, os.path.join(CM, "text_encoders", te)),
+             ("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors", os.path.join(CM, "vae", "flux2-vae.safetensors"))]
+    return {"id": "klein4b", "kind": "image", "engine": "klein", "label": "FLUX.2 Klein 4B", "quality": 4, "style": "photo",
+            "files": files, "size_gb": round({"Q4_K_M": 4.76, "Q8_0": 8.0}[q] + 0.31, 1), "ckpt": "klein4b", "lora": None,
+            "repo": KLEIN_GGUF, "est_secs": 3, "est_secs_mac": 80, "unet": unet, "clip": te, "gguf": True,
+            "desc": "Images en 1 à 1,5 min sur ce Mac : texte lisible, retouche par instruction (installe aussi l'extension ComfyUI-GGUF)."}
+
+
 def klein():
     """FLUX.2 Klein 4B: 3 s per image in the benchmark, understands sentences and edits by instruction."""
+    if config.IS_MAC:
+        return klein_mac()
     try:
         gpu = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
                              text=True, timeout=10, creationflags=NOWIN).stdout.lower()
@@ -80,7 +101,7 @@ def klein():
              ("Comfy-Org/flux2-dev", "split_files/vae/flux2-vae.safetensors", os.path.join(CM, "vae", "flux2-vae.safetensors"))]
     return {"id": "klein4b", "kind": "image", "engine": "klein", "label": "FLUX.2 Klein 4B", "quality": 4, "style": "photo",
             "files": files, "size_gb": 3.8 + (3.2 if "fp4" in te else 5.3) + 0.3, "ckpt": "klein4b", "lora": None,
-            "repo": files[0][0], "est_secs": 3, "clip": te,
+            "repo": files[0][0], "est_secs": 3, "clip": te, "unet": "flux-2-klein-4b-fp8.safetensors",
             "desc": "Images en ~3 s : rapide, texte lisible, retouche par instruction."}
 
 
@@ -113,6 +134,60 @@ def wan5b():
             "files": files, "size_gb": 18.2, "ckpt": "wan22-5b", "repo": WAN, "est_secs": 150, "est_secs_per_s": 30,
             "long_side": 1280, "audio": False, **names,
             "desc": "Vidéo plus légère (sans le son), texte ou image vers vidéo."}
+
+
+MAC_ENGINES = ("klein",)  # image / video engines validated on Apple Silicon (porting plan, phase 3)
+LOW_PRECISION = re.compile(r"fp8|fp4|mxfp", re.I)  # file formats Apple GPUs (MPS) can't compute with
+
+
+def validated_here(m):
+    """False for an image / video model not validated on a Mac yet (SDXL, Qwen-Image, video) or with FP8/FP4 files.
+    Only validated models are recommended; the others stay in the library with a tag (mac_note). Elsewhere: True."""
+    if not config.IS_MAC or m["kind"] not in ("image", "video"):
+        return True
+    return m.get("engine") in MAC_ENGINES and not any(f and LOW_PRECISION.search(f[1]) for f in m["files"])
+
+
+def mac_note(m):
+    """Library tag on a Mac: "fp8" (FP8/FP4 files: Apple GPUs can't compute with them, tested), "too_big" (SDXL on a Mac
+    with 24 GB or less: loading it pushed memory pressure to critical on a 16 GB M3, three times), "untested", or None."""
+    if validated_here(m):
+        return None
+    if any(f and LOW_PRECISION.search(f[1]) for f in m["files"]):
+        return "fp8"
+    return "too_big" if m.get("engine") == "sdxl" and config.small_mac() else "untested"
+
+
+GGUF_NODE = ("https://github.com/city96/ComfyUI-GGUF", "6ea2651e7df66d7585f6ffee804b20e92fb38b8a")  # reviewed commit
+GGUF_PKG = "gguf==0.19.0"  # same pin as requirements.txt
+GGUF_DIR = os.path.join(config.COMFY_DIR, "custom_nodes", "ComfyUI-GGUF")
+
+
+def ensure_gguf_node():
+    """ComfyUI-GGUF at the reviewed commit, installed only along with a GGUF model the user chose to install.
+    A folder that is already there is left as it is (the installer or the user put it there)."""
+    run = lambda *a: subprocess.run(a, capture_output=True, text=True, timeout=600, creationflags=NOWIN)
+    if not os.path.isdir(GGUF_DIR):
+        tmp = GGUF_DIR + ".part"
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+        steps = (("git", "init", "-q", tmp), ("git", "-C", tmp, "fetch", "-q", "--depth", "1", *GGUF_NODE),
+                 ("git", "-C", tmp, "checkout", "-q", "FETCH_HEAD"))
+        for s in steps:
+            try:
+                r = run(*s)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                r = subprocess.CompletedProcess(s, 1, "", str(e))
+            if r.returncode:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise RuntimeError("extension ComfyUI-GGUF non installée (git) : " + (r.stderr or "").strip()[-300:])
+        os.replace(tmp, GGUF_DIR)
+    import importlib.util
+    if importlib.util.find_spec("gguf") is None:
+        import sys
+        r = run(sys.executable, "-m", "pip", "install", "--quiet", GGUF_PKG)
+        if r.returncode:
+            raise RuntimeError("paquet gguf non installé : " + (r.stderr or "").strip()[-300:])
 
 
 WHISPER_FILES = ("config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json",
@@ -224,7 +299,10 @@ def indicators(m, measured=None, sysinfo=None):
         secs = (measured * 5 + 20) if measured else m["est_secs"] * (230 / max(bw, 60)) ** 0.7  # for 5 s of video
         fit = 2 if m["size_gb"] + 4 <= mem else 1 if m["size_gb"] <= mem * 1.6 else 0
         return {"speed": 3 if secs <= 60 else 2 if secs <= 180 else 1, "fit": fit, "secs": round(secs), "measured": bool(measured)}
-    secs = measured or m.get("est_secs", 15) * (230 / max(bw, 60)) ** 0.7
+    if config.IS_MAC and m.get("est_secs_mac"):  # measured on the M3 (84 GB/s effective): GPU compute bound, not bandwidth
+        secs = measured or m["est_secs_mac"] * (84 / max(bw, 40)) ** 0.8
+    else:
+        secs = measured or m.get("est_secs", 15) * (230 / max(bw, 60)) ** 0.7
     fit = 2 if m["size_gb"] + 6 <= mem else 1 if m["size_gb"] <= mem + 2 else 0
     return {"speed": 3 if secs <= 12 else 2 if secs <= 30 else 1, "fit": fit, "secs": round(secs), "measured": bool(measured)}
 
@@ -238,6 +316,8 @@ def remote_size(repo, file):
 def _install(mid):
     m, job = BY_ID[mid], jobs[mid]
     try:
+        if m.get("gguf"):
+            ensure_gguf_node()
         files = [(r, f, l, remote_size(r, f)) for r, f, l in filter(None, m["files"])]
         job["total"] = sum(s for *_, s in files)
         prog, errors = {}, []
@@ -364,7 +444,7 @@ def listing(settings):
                       "visionGb": 0.9 if m.get("vision") else 0,
                       "think": m.get("think", False), "custom": m.get("custom", False),
                       "cloud": m.get("providerLabel") if m.get("cloud") else None,
-                      "recommended": m["id"] in rec, "qualityGuess": m.get("qualityGuess", False),
+                      "recommended": m["id"] in rec, "qualityGuess": m.get("qualityGuess", False), "macNote": mac_note(m),
                       **indicators(m, meas, info)})
     return out
 

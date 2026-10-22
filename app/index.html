@@ -411,6 +411,7 @@ body.botmode #scroll,body.botmode footer,body.botmode #art{display:none!importan
 .seg button.on{background:var(--acc-bg2);color:var(--acc-fg)}
 .seg.off{opacity:.4;pointer-events:none}
 .rec{font-size:10.5px;padding:2px 7px;border-radius:9px;background:var(--ok-bg);color:var(--ok);margin-left:6px;vertical-align:1px;white-space:nowrap}
+.rec.mac{background:var(--s3);color:var(--warn)}
 /* ---- analyse système / bienvenue */
 #welc{position:fixed;inset:0;background:#000c;display:none;place-items:center;z-index:15}
 #welc .card{background:var(--s15);border:1px solid var(--line);border-radius:18px;width:min(620px,94vw);max-height:92vh;overflow:auto;padding:26px 26px 20px}
@@ -891,6 +892,7 @@ const EN={
  'Mise à jour disponible :':'Update available:','Installer la mise à jour':'Install the update','Plus tard':'Later','Réessayer':'Retry','Mise à jour…':'Updating…','Copier':'Copy','Copié':'Copied',
  'Mise à jour installée, redémarrage de Sparky…':'Update installed, restarting Sparky…','Vérifier les mises à jour':'Check for updates','Version':'Version',
  "Installation sans git : pour mettre à jour, relance la commande d'installation dans PowerShell :":'Installed without git: to update, run the install command again in PowerShell:',
+ "Installation sans git : pour mettre à jour, relance la commande d'installation dans le Terminal :":'Installed without git: to update, run the install command again in Terminal:',
  'Des fichiers de Sparky ont été modifiés sur ce PC, la mise à jour automatique les écraserait :':'Some Sparky files were modified on this PC, the automatic update would overwrite them:',
  'Mets ces modifications de côté avec cette commande, puis clique sur Réessayer :':'Put these changes aside with this command, then click Retry:',
  'La mise à jour a échoué :':'The update failed:',
@@ -1032,7 +1034,14 @@ const EN={
  'Photo réaliste (SDXL), léger.':'Photorealistic (SDXL), light.','Illustration, anime, BD (SDXL).':'Illustration, anime, comics (SDXL).',
  'Dictée vocale hors ligne, très précise (99 langues).':'Offline voice dictation, very accurate (99 languages).','Dictée vocale légère, pour les machines sans GPU.':'Light voice dictation, for machines without a GPU.',
  "Pas de GPU NVIDIA compatible : la génération d'images serait très lente, elle n'est pas recommandée.":"No compatible NVIDIA GPU: image generation would be very slow, so it isn't recommended.",
- "Mac : la génération d'images n'est pas encore validée sur Apple Silicon, elle n'est pas recommandée pour l'instant.":"Mac: image generation is not validated on Apple Silicon yet, so it isn't recommended for now.",
+ "Mac : la génération d'images demande 16 Go de mémoire ou plus.":"Mac: image generation needs 16 GB of memory or more.",
+ 'FP8 : échoue sur Mac':'FP8: fails on a Mac','trop gros pour ce Mac':'too big for this Mac',
+ "SDXL charge ~7 Go d'un coup dans la mémoire du GPU : sur un Mac de 16 Go, la pression mémoire devient critique dès le chargement (testé)":"SDXL loads ~7 GB at once into GPU memory: on a 16 GB Mac, memory pressure turns critical as soon as it loads (tested)",'non testé sur Mac':'not tested on a Mac',
+ "fichiers FP8 / FP4 : les GPU Apple ne savent pas les calculer (testé), l'image ou la vidéo échouera":"FP8 / FP4 files: Apple GPUs can't compute with them (tested), the image or video will fail",
+ 'pas encore essayé sur Apple Silicon : peut être lent, trop gros ou échouer':'not tried on Apple Silicon yet: may be slow, too big or fail',
+ 'Images en 1 à 1,5 min sur ce Mac : texte lisible, retouche par instruction (installe aussi l\'extension ComfyUI-GGUF).':'Images in 1 to 1.5 min on this Mac: readable text, edits by instruction (also installs the ComfyUI-GGUF extension).',
+'Prépare ComfyUI pour les fichiers GGUF':'Preparing ComfyUI for GGUF files',"Redémarre l'assistant avec moins de contexte":'Restarting the assistant with a smaller context',"Décharge l'ancien modèle d'image":'Unloading the previous image model',
+
  "Sans GPU NVIDIA, l'assistant tourne sur le processeur : choisis un petit modèle.":'Without an NVIDIA GPU the assistant runs on the processor: pick a small model.',
 };
 const EN_RX=[
@@ -1577,7 +1586,10 @@ async function loadCat(){const r=await(await fetch('/api/settings')).json();CAT=
   return r}
 let ACTIVE={};
 const isActive=m=>m.kind==='llm'?m.id===ACTIVE.llm:m.kind==='voice'?m.id===ACTIVE.voice:m.kind==='video'?m.id===ACTIVE.video:m.ckpt===ACTIVE.ckpt;
-const recTag=m=>m.recommended?'<span class="rec" title="recommandé pour ta machine">recommandé</span>':'';
+const recTag=m=>(m.recommended?'<span class="rec" title="recommandé pour ta machine">recommandé</span>':'')
+  +(m.macNote==='fp8'?'<span class="rec mac" title="fichiers FP8 / FP4 : les GPU Apple ne savent pas les calculer (testé), l\'image ou la vidéo échouera">FP8 : échoue sur Mac</span>'
+   :m.macNote==='too_big'?'<span class="rec mac" title="SDXL charge ~7 Go d\'un coup dans la mémoire du GPU : sur un Mac de 16 Go, la pression mémoire devient critique dès le chargement (testé)">trop gros pour ce Mac</span>'
+   :m.macNote==='untested'?'<span class="rec mac" title="pas encore essayé sur Apple Silicon : peut être lent, trop gros ou échouer">non testé sur Mac</span>':'');
 
 // ---------- niveau de réflexion
 const THK=[['off','Désactivée'],['low','Légère'],['medium','Normale'],['high','Approfondie']];
@@ -1623,7 +1635,7 @@ function cmdBox(c){return '<code>'+esc(c)+'</code><button class="go" id="updCopy
 function bindCopy(c){const b=$('updCopy');if(b)b.onclick=()=>{navigator.clipboard.writeText(c);b.textContent='Copié'}}
 function showUpd(v,msg){VER=v;const u=$('upd');$('updV').textContent='v'+v.latest;u.style.display='block';const M=$('updM'),go=$('updGo');
   go.style.display='';go.disabled=false;go.textContent='Installer la mise à jour';M.innerHTML='';
-  if(!v.git){go.style.display='none';M.innerHTML="<span>Installation sans git : pour mettre à jour, relance la commande d'installation dans PowerShell :</span>"+cmdBox(v.command);bindCopy(v.command)}
+  if(!v.git){go.style.display='none';M.innerHTML="<span>"+(v.command.startsWith('irm')?"Installation sans git : pour mettre à jour, relance la commande d'installation dans PowerShell :":"Installation sans git : pour mettre à jour, relance la commande d'installation dans le Terminal :")+"</span>"+cmdBox(v.command);bindCopy(v.command)}
   else if(v.changes.length){const c='git -C "'+v.root+'" stash -u';go.textContent='Réessayer';
     M.innerHTML='<span>Des fichiers de Sparky ont été modifiés sur ce PC, la mise à jour automatique les écraserait :</span><ul>'+v.changes.slice(0,8).map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul>'
       +'<span>Mets ces modifications de côté avec cette commande, puis clique sur Réessayer :</span>'+cmdBox(c);bindCopy(c)}

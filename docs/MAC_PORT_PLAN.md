@@ -90,6 +90,29 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
 - **Phase 2 — done** (`8d92383`). Verified on the M3 / 16 GB: Qwen3.5 4B on Metal, 284 tok/s prompt, 25 tok/s
   generation, chat through `/api/chat`, start/stop cycle. Changes vs. the plan: GPU monitor uses `ioreg` (real GPU use
   and memory, no sudo) instead of RAM only; llama.cpp macOS builds are `.tar.gz` with a sha256 digest (checked).
+- **Phase 3 — images, dictation, read-aloud: done** ([PHASE3_PLAN.md](PHASE3_PLAN.md), results at its top). Measured on
+  the M3 / 16 GB MacBook Air (no fan):
+  - **FLUX.2 Klein 4B in GGUF Q4_K_M** (`unsloth`, ComfyUI-GGUF at `6ea2651e7d`, `gguf==0.19.0`): real images, text
+    spelled right, edit by instruction and references work. 768x768: 55 s cool, 75-105 s warm (the Air slows down after a
+    few minutes of load); 1024x1024: ~95 s; edit / 2 references: ~150 / ~165 s. ~8 GB in use during an image.
+    Q8_0: memory pressure critical on 16 GB (kept for Macs with 32 GB+). SDPA attention: same speed, 0.5 GB less.
+  - **Memory:** next to the 4B assistant, an image (even a plain one, with a few apps open) pushed memory pressure to
+    critical. On Macs with 24 GB or less the assistant now stops during each image, Klein is unloaded after it, then the
+    assistant comes back (~6 s, plus ~30 s for it to reread the conversation). Live: 5 chat images including an edit,
+    pressure never above "warning", no swap growth. The assistant also restarts once at 16 384 tokens of context when an
+    image model is chosen (65 536 → 16 384 saves 0.8 GB with the 4B model).
+  - **On a Mac only Klein is recommended.** The other image / video models and Hugging Face image models stay in the
+    library and can be installed, tagged "not tested on a Mac" (Qwen-Image, LTX), "FP8: fails on a Mac" (Wan: its umt5
+    text encoder is FP8, which Apple GPUs can't compute with) or "too big for this Mac" (SDXL on 24 GB or less).
+  - **SDXL tested (Juggernaut XL v9): doesn't fit on 16 GB.** Sparky's installer works (10.5 GB, checksums OK), but
+    loading the fp16 checkpoint pushed memory pressure to critical three times, before the first step (5-6 → 14 GB).
+    ComfyUI on MPS loads it straight into GPU memory (wired, not compressible); `--lowvram` / `--novram` are ignored
+    there (vram state forced to SHARED). The way to run it would be SDXL in GGUF (third-party conversions exist:
+    `off-grid-ai/juggernaut-xl-v9-GGUF`, `off-grid-ai/animagine-xl-4.0-GGUF`), not done: Klein already covers photos.
+  - **Dictation** (Whisper turbo on MPS, fp16): same text as the CPU in French and English, 2.5 s for 6.6 s of speech.
+  - **Read-aloud** (Piper `en_US-lessac-medium`, `fr_FR-siwis-medium`): ~6x faster than real time; Whisper hears back the
+    exact sentence; `test_real_synthesis` runs locally.
+  - **Tested commits:** ComfyUI `a2440bc` (pinned on a Mac by `install.sh`), ComfyUI-GGUF `6ea2651e7d`.
 
 ### Pending / to review
 - ~~**Security (also on Windows, upstream):** llama-server ran with no API key and `CORS: *`~~ **fixed**: Sparky
@@ -117,7 +140,15 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   4-message check (image refused with the install hint, code artifact or short reply, chat, explanation).
 - Note: running tests while Sparky answers chats makes both slow on 16 GB (338 s instead of 25 s for the suite).
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
-- **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
+- **Taken from upstream PR anisayari/sparky#1** (EnzoDeg40, macOS part 1), where it was ahead of us: Whisper dictation on
+  MPS (phase 3 item, measured on the M3: 2.4 s instead of 6.0 s on the CPU, same text), `node` / `npm` without `.exe` /
+  `.cmd` in `checker.py` (phase 5 item), a portable Node.js LTS in `runtime/node` when the Mac has none (we add a sha256
+  check against `SHASUMS256.txt`), `~/Applications/Sparky.app` for Spotlight / Launchpad (we never replace an app we did
+  not make; `uninstall.sh` removes it; tested via `open`: the server outlives the launcher), the Metal wired limit
+  (`iogpu.wired_limit_mb`) in the scan, and the README's macOS section. Not taken, ours is safer or already done:
+  restart after an update (no shell), `stop.sh` (only Sparky's processes), llama.cpp checksum, stop without root.
+- **install.ps1** clones `Vicepo/MacSparky`, the repository the updater checks (was `anisayari/sparky`).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).
-- Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model; fine here, watch memory with
-  bigger models (phase 3 adds images on top).
+- Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model, 16 384 once an image model is chosen.
+- **Later (phase 3b):** SDXL on a Mac (should run as is, not tested yet); keep the assistant's cache across the image
+  pause (llama-server slot save / restore) to save the ~30 s reread; Wan / LTX on Macs with 32 GB+.

@@ -45,6 +45,15 @@ def apple_silicon():
     return config.IS_MAC and (platform.machine() == "arm64" or _sysctl("hw.optional.arm64") == "1")
 
 
+def metal_share(ram):
+    """(GB the Apple GPU may use, True if set by hand). macOS gives Metal 2/3 of the memory up to 36 GB, 3/4 above;
+    `sudo sysctl iogpu.wired_limit_mb=...` changes that until the next restart."""
+    limit = _sysctl("iogpu.wired_limit_mb")
+    if limit.isdigit() and int(limit) > 0:
+        return int(limit) / 1024, True
+    return ram * (2 / 3 if ram <= 36 else 3 / 4), False
+
+
 def detect():
     import psutil
     ram = psutil.virtual_memory().total / 2**30
@@ -52,7 +61,9 @@ def detect():
         or platform.processor() or "?"
     gpus = []
     if apple_silicon():  # the GPU is in the chip and shares the memory (Metal)
-        gpus.append({"name": f"{cpu.strip()} GPU", "vram_gb": round(ram, 1), "driver": "Metal", "vendor": "apple"})
+        share, manual = metal_share(ram)
+        gpus.append({"name": f"{cpu.strip()} GPU", "vram_gb": round(share, 1), "driver": "Metal", "vendor": "apple",
+                     "wired_limit": manual})
     out = _run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"])
     for line in out.splitlines():
         p = [x.strip() for x in line.split(",")]
@@ -77,8 +88,11 @@ def assess(hw):
     apple = bool(g) and g["vendor"] == "apple"
     unified = bool(g) and (apple or any(h in name for h in UNIFIED_HINTS) or abs(g["vram_gb"] - hw["ram_gb"]) < 0.12 * hw["ram_gb"])
     if apple:
-        # macOS lets Metal use ~2/3 of the memory, and needs ~6 GB for itself and the apps: 16 GB -> 10 GB for models
-        mode, mem = "unified", max(0.0, min(hw["ram_gb"] * 0.7, hw["ram_gb"] - 6.0))
+        # macOS lets Metal use ~2/3 of the memory, and needs ~6 GB for itself and the apps: 16 GB -> 10 GB for models.
+        # A wired limit set by hand is what Metal really gets: use it, minus 1 GB, and keep 4 GB for macOS
+        ram = hw["ram_gb"]
+        mem = min(g["vram_gb"] - 1.0, ram - 4.0) if g.get("wired_limit") else min(ram * 0.7, ram - 6.0)
+        mode, mem = "unified", max(0.0, mem)
     elif g and unified:
         mode, mem = "unified", g["vram_gb"] - 2.0      # memory shared by CPU + GPU, keep enough to run Windows
     elif g:
@@ -91,7 +105,8 @@ def assess(hw):
         bw = next((b for k, b in BANDWIDTH if k in name), None) if g else None
     if bw is None:
         bw = (max(150, g["vram_gb"] * 25) if g else 40)
-    image_gb = 7.5                                     # FLUX.2 Klein 4B (or SDXL) during a generation
+    # FLUX.2 Klein 4B (or SDXL) during a generation; Mac: Klein GGUF Q4, measured ~8 GB in use on a 16 GB M3
+    image_gb = 8.0 if apple else 7.5
     if mode == "cpu" or mem < 6:
         tier, label = 1, "Limitée"
     elif mem < 12:
@@ -101,8 +116,7 @@ def assess(hw):
     else:
         tier, label = 4, "Excellente"
     return {"mode": mode, "gpu": g["name"] if g else None, "model_mem_gb": round(mem, 1), "bandwidth": bw,
-            # images on a Mac (ComfyUI on MPS) are not validated yet: not recommended until then (porting plan, phase 3)
-            "image_gb": image_gb, "tier": tier, "tier_label": label, "images": mode != "cpu" and mem >= 5.5 and not apple}
+            "image_gb": image_gb, "tier": tier, "tier_label": label, "images": mode != "cpu" and mem >= 5.5}
 
 
 def recommend(sysinfo):
@@ -121,12 +135,12 @@ def recommend(sysinfo):
     a = sysinfo["assess"]
     if a["images"]:
         # FLUX.2 Klein 4B: ~3 s per image, 7 GB; Qwen-Image (nicer, 10x slower) stays in the library
-        imgs = [m for m in catalog.CATALOG if m["kind"] == "image" and not m.get("custom")]
+        imgs = [m for m in catalog.CATALOG if m["kind"] == "image" and not m.get("custom") and catalog.validated_here(m)]
         fits = [m for m in imgs if catalog.indicators(m, sysinfo=sysinfo)["fit"] >= 1]
         pick = next((m for m in fits if m.get("engine") == "klein"), None) or (max(fits, key=lambda m: m["quality"]) if fits else None)
         out["image"] = pick["id"] if pick else None
     elif (a.get("gpu") or "").lower().startswith("apple"):
-        notes.append("Mac : la génération d'images n'est pas encore validée sur Apple Silicon, elle n'est pas recommandée pour l'instant.")
+        notes.append("Mac : la génération d'images demande 16 Go de mémoire ou plus.")
     else:
         notes.append("Pas de GPU NVIDIA compatible : la génération d'images serait très lente, elle n'est pas recommandée.")
     out["voice"] = "whisper-turbo" if a["mode"] != "cpu" else "whisper-base"  # voice dictation
@@ -138,9 +152,12 @@ def recommend(sysinfo):
     return out, notes
 
 
+SCAN_VERSION = 2  # +1 when assess() / recommend() change: a scan saved by an older Sparky is redone (2: images on a Mac)
+
+
 def run():
     hw = detect()
-    info = {"ts": time.time(), "hw": hw, "assess": assess(hw)}
+    info = {"ts": time.time(), "v": SCAN_VERSION, "hw": hw, "assess": assess(hw)}
     info["recommended"], info["notes"] = recommend(info)
     config.write_json(FILE, info)
     _cache["v"] = info
@@ -154,14 +171,14 @@ def current():
     """Last scan (without rerunning), or a fresh scan if there has never been one."""
     if _cache["v"] is None:
         _cache["v"] = config.read_json(FILE)
-        if not isinstance(_cache["v"], dict) or "recommended" not in _cache["v"]:
+        if not isinstance(_cache["v"], dict) or "recommended" not in _cache["v"] or _cache["v"].get("v") != SCAN_VERSION:
             return run()
     return _cache["v"]
 
 
 TIER_EN = {"Limitée": "Limited", "Correcte": "Fair", "Bonne": "Good", "Excellente": "Excellent"}
 NOTES_EN = [(r"^Pas de GPU NVIDIA compatible.*", "No compatible NVIDIA GPU: image generation would be very slow, so it isn't recommended."),
-            (r"^Mac : la génération d'images.*", "Mac: image generation is not validated on Apple Silicon yet, so it isn't recommended for now."),
+            (r"^Mac : la génération d'images.*", "Mac: image generation needs 16 GB of memory or more."),
             (r"^Sans GPU NVIDIA.*", "Without an NVIDIA GPU the assistant runs on the processor: pick a small model."),
             (r"^Espace disque faible : (\d+) Go libres pour ~(\d+) Go.*", r"Low disk space: \1 GB free for ~\2 GB of recommended models.")]
 

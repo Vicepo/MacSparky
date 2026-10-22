@@ -148,7 +148,7 @@ Sparky Bot is a friend-like companion that **remembers you, learns your style an
 **One line**, in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/anisayari/sparky/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Vicepo/MacSparky/main/install.ps1 | iex
 ```
 
 **Or** download the project (*Code > Download ZIP*), unzip it and double-click `install.bat`.
@@ -171,6 +171,24 @@ Next times, double-click the shortcut (or `start.bat`). To stop everything: `sto
 
 Installer options: `-Lang en|fr`, `-Dir <folder>`, `-Yes` (no questions), `-Models` (also download the recommended models from the terminal), `-NoLaunch`. For the one-line install, use the environment variables `SPARKY_LANG`, `SPARKY_DIR`, `SPARKY_YES`, `SPARKY_MODELS`, `SPARKY_NOLAUNCH`.
 
+## 🍎 Install (macOS on Apple Silicon)
+
+**One line**, in Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Vicepo/MacSparky/main/install.sh | bash
+```
+
+**Or** from the project folder: `./install.sh`. Same 7 steps as on Windows: Python 3.12 (found on the Mac, or via Homebrew after you say yes), PyTorch (Apple GPU through Metal), ComfyUI, [llama.cpp](https://github.com/ggml-org/llama.cpp) for macOS (Metal build, checksum verified), Node.js (the Mac's own, or a portable LTS build, checksum verified), the system scan, and a **Sparky** app in `~/Applications` (Spotlight, Launchpad). Default folder: `~/Sparky`. Nothing needs `sudo`.
+
+Next times, open **Sparky** from Spotlight or Launchpad (or `./start.sh`). To stop everything: `./stop.sh`.
+
+What works on a Mac today: chat, vision, documents (RAG), web, code & projects, dictation (on the Apple GPU) and read-aloud, computer mode (Mac folders, Trash, `zsh`), MCP, scheduled tasks, cloud models. **Not yet**: image and video generation.
+
+The scan gives the models the share of memory macOS lets the GPU use (about 10 GB on a 16 GB Mac). If you raised that limit yourself (`sudo sysctl iogpu.wired_limit_mb=…`), the scan follows it and keeps 4 GB for macOS.
+
+Options: `--lang en|fr`, `--dir <folder>`, `--yes`, `--models`, `--no-launch`, `--no-shortcut` (or the same `SPARKY_*` environment variables, plus `SPARKY_NOSHORTCUT`).
+
 ### 💻 Which machine?
 
 | Machine | Runs well |
@@ -178,6 +196,7 @@ Installer options: `-Lang en|fr`, `-Dir <folder>`, `-Yes` (no questions), `-Mode
 | NVIDIA GPU 24 GB+ or 32 GB+ unified memory | 27–35B assistants, Qwen-Image 2.1 |
 | NVIDIA GPU 12–16 GB | 9–20B assistants, FLUX.2 Klein |
 | NVIDIA GPU 6–8 GB | 4–9B assistants, FLUX.2 Klein (slower) |
+| Mac Apple Silicon 16–24 GB / 32 GB+ | 4–9B / 20–35B assistants on the GPU (Metal), no image generation yet |
 | No NVIDIA GPU | small assistants (4B) on the CPU, no image generation |
 
 The system scan picks automatically among these.
@@ -251,7 +270,7 @@ runtime\venv\Scripts\python.exe app\models_cli.py qwen359        # install one m
 ## ⬆️ Update / uninstall
 
 - **Update**: Sparky checks GitHub once an hour. When a new version is out, a message offers to **install the update**: Sparky runs `git pull` and restarts by itself. If files were modified locally, it lists them and gives the command to put them aside first; for an install made from the ZIP, it gives the install command to run again. The current version is in *Settings > Version* (and in the `VERSION` file).
-- **Uninstall**: `stop.bat`, then delete the install folder (`%LOCALAPPDATA%\Sparky` by default) and the shortcuts.
+- **Uninstall**: `stop.bat`, then delete the install folder (`%LOCALAPPDATA%\Sparky` by default) and the shortcuts. On macOS: `./uninstall.sh` in the install folder (it stops Sparky, then deletes the folder, `~/Applications/Sparky.app` and the Desktop shortcut after asking).
 
 ## ☁️ Cloud models (optional)
 

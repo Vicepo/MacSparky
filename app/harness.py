@@ -6,7 +6,6 @@ fix it itself if needed, up to MAX_STEPS steps per message.
 """
 import base64, contextlib, io, json, os, random, re, secrets, threading, time, urllib.error, urllib.request, uuid
 
-import psutil
 from PIL import Image, ImageDraw
 
 import config
@@ -66,7 +65,7 @@ def save_settings():
 RECENT_IMAGES = 10  # beyond this, the oldest images are turned into text (in batches of 6)
 SIZES = {"square": (1024, 1024), "portrait": (832, 1216), "landscape": (1216, 832)}
 # a Mac with 24 GB or less draws 768x768-sized images (0.56 MP): measured on a 16 GB M3, 55-105 s (cool / warm) instead of ~95 s+ at 1024x1024
-IMAGE_MP = 0.5625 if config.IS_MAC and psutil.virtual_memory().total <= 24.5 * 2**30 else 1.0
+IMAGE_MP = 0.5625 if config.small_mac() else 1.0
 
 
 def mp_size(w, h):

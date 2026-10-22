@@ -102,8 +102,13 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
     pressure never above "warning", no swap growth. The assistant also restarts once at 16 384 tokens of context when an
     image model is chosen (65 536 → 16 384 saves 0.8 GB with the 4B model).
   - **On a Mac only Klein is recommended.** The other image / video models and Hugging Face image models stay in the
-    library and can be installed, tagged "not tested on a Mac" (SDXL, Qwen-Image, LTX) or "FP8: fails on a Mac" (Wan:
-    its umt5 text encoder is FP8, which Apple GPUs can't compute with).
+    library and can be installed, tagged "not tested on a Mac" (Qwen-Image, LTX), "FP8: fails on a Mac" (Wan: its umt5
+    text encoder is FP8, which Apple GPUs can't compute with) or "too big for this Mac" (SDXL on 24 GB or less).
+  - **SDXL tested (Juggernaut XL v9): doesn't fit on 16 GB.** Sparky's installer works (10.5 GB, checksums OK), but
+    loading the fp16 checkpoint pushed memory pressure to critical three times, before the first step (5-6 → 14 GB).
+    ComfyUI on MPS loads it straight into GPU memory (wired, not compressible); `--lowvram` / `--novram` are ignored
+    there (vram state forced to SHARED). The way to run it would be SDXL in GGUF (third-party conversions exist:
+    `off-grid-ai/juggernaut-xl-v9-GGUF`, `off-grid-ai/animagine-xl-4.0-GGUF`), not done: Klein already covers photos.
   - **Dictation** (Whisper turbo on MPS, fp16): same text as the CPU in French and English, 2.5 s for 6.6 s of speech.
   - **Read-aloud** (Piper `en_US-lessac-medium`, `fr_FR-siwis-medium`): ~6x faster than real time; Whisper hears back the
     exact sentence; `test_real_synthesis` runs locally.

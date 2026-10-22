@@ -7,7 +7,8 @@ difference, so `git merge upstream/main` stays easy. Each work item ends with te
 ## 0. Results (2026-10-22) and changes vs. this plan
 
 Numbers: MAC_PORT_PLAN.md, phase 3. What was done differently from the sections below, and why:
-- **Klein only.** SDXL (S1–S4) was not tested, to halve the downloads.
+- **Klein only.** SDXL was tested afterwards (Juggernaut): it doesn't fit on a 16 GB Mac (critical memory pressure as
+  soon as the checkpoint loads, before S1's first step), so S2–S4 were not reached. Tagged "too big for this Mac".
 - **Nothing is hidden, only Klein is recommended:** `validated_here()` (engines in `MAC_ENGINES = ("klein",)`, no FP8/FP4
   file) decides the recommendation; every other image / video model stays installable with a tag (`mac_note()`:
   "not tested on a Mac", or "FP8: fails on a Mac"). A first version hid them; shown again at the user's request.

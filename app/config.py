@@ -10,6 +10,14 @@ IS_WIN = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
 EXE = ".exe" if IS_WIN else ""            # executables have no extension on macOS / Linux
 INSTALLER = "install.ps1" if IS_WIN else "install.sh"
+
+
+def small_mac():
+    """Mac with 24 GB or less: smaller images, the assistant pauses during them, SDXL doesn't fit (porting plan, phase 3)."""
+    import psutil
+    return IS_MAC and psutil.virtual_memory().total <= 24.5 * 2**30
+
+
 APP = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(APP)
 _cfg = {}

@@ -54,7 +54,7 @@ def test_klein_elsewhere_keeps_its_fp8_files(not_mac):
 
 
 def test_only_klein_gguf_is_validated_on_a_mac(mac, monkeypatch):
-    ram(monkeypatch, 16)
+    ram(monkeypatch, 32)  # big Mac: SDXL is only untested there
     assert catalog.validated_here(catalog.klein_mac()) and catalog.mac_note(catalog.klein_mac()) is None
     with monkeypatch.context() as mp:
         mp.setattr(config, "IS_MAC", False)
@@ -71,6 +71,28 @@ def test_only_klein_gguf_is_validated_on_a_mac(mac, monkeypatch):
     assert catalog.mac_note(catalog.ckpt("hf:y", "y", 3, "someone/y", "y_fp8.safetensors", 6.5)) == "fp8"
 
 
+def test_sdxl_is_too_big_for_a_16gb_mac(mac, monkeypatch):
+    ram(monkeypatch, 16)
+    for mid in ("juggernaut", "animagine"):
+        assert catalog.mac_note(catalog.BY_ID[mid]) == "too_big", mid
+    assert catalog.mac_note(catalog.ckpt("hf:x", "x", 3, "someone/x", "x.safetensors", 6.5)) == "too_big"
+    assert catalog.mac_note(catalog.BY_ID["qwen21"]) == "untested" and catalog.mac_note(catalog.BY_ID["wan22-5b"]) == "fp8"
+    ram(monkeypatch, 24)
+    assert catalog.mac_note(catalog.BY_ID["juggernaut"]) == "too_big"
+    ram(monkeypatch, 32)
+    assert catalog.mac_note(catalog.BY_ID["juggernaut"]) == "untested"
+
+
+def test_small_mac_is_24gb_or_less(monkeypatch):
+    monkeypatch.setattr(config, "IS_MAC", True)
+    for gb, small in ((8, True), (16, True), (24, True), (32, False)):
+        ram(monkeypatch, gb)
+        assert config.small_mac() is small, gb
+    monkeypatch.setattr(config, "IS_MAC", False)
+    ram(monkeypatch, 16)
+    assert not config.small_mac()
+
+
 def test_no_mac_note_elsewhere(not_mac):
     assert all(catalog.validated_here(m) and catalog.mac_note(m) is None for m in catalog.CATALOG)
 
@@ -79,7 +101,8 @@ def _listing():
     return catalog.listing({"speed": {}})
 
 
-def test_library_on_a_mac_shows_every_model_with_a_tag(mac):
+def test_library_on_a_mac_shows_every_model_with_a_tag(mac, monkeypatch):
+    ram(monkeypatch, 32)
     rows = {m["id"]: m for m in _listing()}
     assert {"juggernaut", "animagine", "qwen21", "ltx25", "wan22-5b", "qwen354"} <= rows.keys()
     assert rows["juggernaut"]["macNote"] == "untested" and rows["wan22-5b"]["macNote"] == "fp8"

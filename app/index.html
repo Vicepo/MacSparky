@@ -1035,7 +1035,8 @@ const EN={
  'Dictée vocale hors ligne, très précise (99 langues).':'Offline voice dictation, very accurate (99 languages).','Dictée vocale légère, pour les machines sans GPU.':'Light voice dictation, for machines without a GPU.',
  "Pas de GPU NVIDIA compatible : la génération d'images serait très lente, elle n'est pas recommandée.":"No compatible NVIDIA GPU: image generation would be very slow, so it isn't recommended.",
  "Mac : la génération d'images demande 16 Go de mémoire ou plus.":"Mac: image generation needs 16 GB of memory or more.",
- 'FP8 : échoue sur Mac':'FP8: fails on a Mac','non testé sur Mac':'not tested on a Mac',
+ 'FP8 : échoue sur Mac':'FP8: fails on a Mac','trop gros pour ce Mac':'too big for this Mac',
+ "SDXL charge ~7 Go d'un coup dans la mémoire du GPU : sur un Mac de 16 Go, la pression mémoire devient critique dès le chargement (testé)":"SDXL loads ~7 GB at once into GPU memory: on a 16 GB Mac, memory pressure turns critical as soon as it loads (tested)",'non testé sur Mac':'not tested on a Mac',
  "fichiers FP8 / FP4 : les GPU Apple ne savent pas les calculer (testé), l'image ou la vidéo échouera":"FP8 / FP4 files: Apple GPUs can't compute with them (tested), the image or video will fail",
  'pas encore essayé sur Apple Silicon : peut être lent, trop gros ou échouer':'not tried on Apple Silicon yet: may be slow, too big or fail',
  'Images en 1 à 1,5 min sur ce Mac : texte lisible, retouche par instruction (installe aussi l\'extension ComfyUI-GGUF).':'Images in 1 to 1.5 min on this Mac: readable text, edits by instruction (also installs the ComfyUI-GGUF extension).',
@@ -1587,6 +1588,7 @@ let ACTIVE={};
 const isActive=m=>m.kind==='llm'?m.id===ACTIVE.llm:m.kind==='voice'?m.id===ACTIVE.voice:m.kind==='video'?m.id===ACTIVE.video:m.ckpt===ACTIVE.ckpt;
 const recTag=m=>(m.recommended?'<span class="rec" title="recommandé pour ta machine">recommandé</span>':'')
   +(m.macNote==='fp8'?'<span class="rec mac" title="fichiers FP8 / FP4 : les GPU Apple ne savent pas les calculer (testé), l\'image ou la vidéo échouera">FP8 : échoue sur Mac</span>'
+   :m.macNote==='too_big'?'<span class="rec mac" title="SDXL charge ~7 Go d\'un coup dans la mémoire du GPU : sur un Mac de 16 Go, la pression mémoire devient critique dès le chargement (testé)">trop gros pour ce Mac</span>'
    :m.macNote==='untested'?'<span class="rec mac" title="pas encore essayé sur Apple Silicon : peut être lent, trop gros ou échouer">non testé sur Mac</span>':'');
 
 // ---------- niveau de réflexion

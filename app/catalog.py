@@ -149,10 +149,13 @@ def validated_here(m):
 
 
 def mac_note(m):
-    """Library tag on a Mac: "fp8" (FP8/FP4 files: Apple GPUs can't compute with them, tested), "untested", or None."""
+    """Library tag on a Mac: "fp8" (FP8/FP4 files: Apple GPUs can't compute with them, tested), "too_big" (SDXL on a Mac
+    with 24 GB or less: loading it pushed memory pressure to critical on a 16 GB M3, three times), "untested", or None."""
     if validated_here(m):
         return None
-    return "fp8" if any(f and LOW_PRECISION.search(f[1]) for f in m["files"]) else "untested"
+    if any(f and LOW_PRECISION.search(f[1]) for f in m["files"]):
+        return "fp8"
+    return "too_big" if m.get("engine") == "sdxl" and config.small_mac() else "untested"
 
 
 GGUF_NODE = ("https://github.com/city96/ComfyUI-GGUF", "6ea2651e7df66d7585f6ffee804b20e92fb38b8a")  # reviewed commit

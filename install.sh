@@ -152,11 +152,17 @@ find_python() {
   done
   return 1
 }
-get_repo() {  # get_repo <label> <url> <dest> <branch>
+clone_at() {  # clone_at <dest> <url> <commit>: only that commit, without the history
+  git init -q "$1" && git -C "$1" fetch -q --depth 1 "$2" "$3" && git -C "$1" checkout -q FETCH_HEAD || { rm -rf "$1"; return 1; }
+}
+
+get_repo() {  # get_repo <label> <url> <dest> <branch> [commit]: a commit pins the version that was tested on a Mac
   if [ -d "$3" ]; then ok "$1   $(T already)"; return; fi
+  if has_git && [ -n "${5:-}" ]; then run "$1" clone_at "$3" "$2" "$5"; return; fi
   if has_git; then run "$1" git clone --depth 1 "$2" "$3"; return; fi
-  local tmp; tmp="$(mktemp -d)"
-  fetch "$1" "$2/archive/refs/heads/$4.tar.gz" "$tmp/src.tar.gz"
+  local tmp ref="refs/heads/$4"; tmp="$(mktemp -d)"
+  [ -n "${5:-}" ] && ref="$5"
+  fetch "$1" "$2/archive/$ref.tar.gz" "$tmp/src.tar.gz"
   tar -xzf "$tmp/src.tar.gz" -C "$tmp" || fail "$1"
   mv "$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)" "$3" || fail "$1"
   rm -rf "$tmp"
@@ -304,8 +310,10 @@ main() {
   local tinfo; tinfo="$("$VPY" -c 'import torch; print(torch.__version__, torch.backends.mps.is_available())' 2>/dev/null)"
   case "$tinfo" in *True) ok "$(T mps)   PyTorch ${tinfo% *}" ;; *) warn "PyTorch ${tinfo% *}   $(T nomps)" ;; esac
   local COMFY="$RUNTIME/ComfyUI"
-  get_repo ComfyUI https://github.com/comfyanonymous/ComfyUI "$COMFY" master
+  # ComfyUI and ComfyUI-GGUF at the commits tested on Apple Silicon (MAC_PORT_PLAN.md): a later ComfyUI can break MPS
+  get_repo ComfyUI https://github.com/comfyanonymous/ComfyUI "$COMFY" master a2440bc77cba0bee44b00cee40e9997bb18eb850
   get_repo IP-Adapter https://github.com/cubiq/ComfyUI_IPAdapter_plus "$COMFY/custom_nodes/ComfyUI_IPAdapter_plus" main
+  get_repo ComfyUI-GGUF https://github.com/city96/ComfyUI-GGUF "$COMFY/custom_nodes/ComfyUI-GGUF" main 6ea2651e7df66d7585f6ffee804b20e92fb38b8a
   run "$(T deps)" "$VPY" -m pip install -r "$COMFY/requirements.txt" -r "$ROOT/requirements.txt"
 
   # ---------------------------------------------------------------- 5. llama.cpp + Node.js

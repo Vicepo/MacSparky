@@ -90,6 +90,23 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
 - **Phase 2 — done** (`8d92383`). Verified on the M3 / 16 GB: Qwen3.5 4B on Metal, 284 tok/s prompt, 25 tok/s
   generation, chat through `/api/chat`, start/stop cycle. Changes vs. the plan: GPU monitor uses `ioreg` (real GPU use
   and memory, no sudo) instead of RAM only; llama.cpp macOS builds are `.tar.gz` with a sha256 digest (checked).
+- **Phase 3 — images, dictation, read-aloud: done** ([PHASE3_PLAN.md](PHASE3_PLAN.md), results at its top). Measured on
+  the M3 / 16 GB MacBook Air (no fan):
+  - **FLUX.2 Klein 4B in GGUF Q4_K_M** (`unsloth`, ComfyUI-GGUF at `6ea2651e7d`, `gguf==0.19.0`): real images, text
+    spelled right, edit by instruction and references work. 768x768: 55 s cool, 75-105 s warm (the Air slows down after a
+    few minutes of load); 1024x1024: ~95 s; edit / 2 references: ~150 / ~165 s. ~8 GB in use during an image.
+    Q8_0: memory pressure critical on 16 GB (kept for Macs with 32 GB+). SDPA attention: same speed, 0.5 GB less.
+  - **Memory:** next to the 4B assistant, an image (even a plain one, with a few apps open) pushed memory pressure to
+    critical. On Macs with 24 GB or less the assistant now stops during each image, Klein is unloaded after it, then the
+    assistant comes back (~6 s, plus ~30 s for it to reread the conversation). Live: 5 chat images including an edit,
+    pressure never above "warning", no swap growth. The assistant also restarts once at 16 384 tokens of context when an
+    image model is chosen (65 536 → 16 384 saves 0.8 GB with the 4B model).
+  - **Shown on a Mac:** only Klein for images; SDXL, Qwen-Image, video and Hugging Face image models are hidden (not
+    validated on MPS), with a "N models hidden" line in the library and a message in Studio's video tab.
+  - **Dictation** (Whisper turbo on MPS, fp16): same text as the CPU in French and English, 2.5 s for 6.6 s of speech.
+  - **Read-aloud** (Piper `en_US-lessac-medium`, `fr_FR-siwis-medium`): ~6x faster than real time; Whisper hears back the
+    exact sentence; `test_real_synthesis` runs locally.
+  - **Tested commits:** ComfyUI `a2440bc` (pinned on a Mac by `install.sh`), ComfyUI-GGUF `6ea2651e7d`.
 
 ### Pending / to review
 - ~~**Security (also on Windows, upstream):** llama-server ran with no API key and `CORS: *`~~ **fixed**: Sparky
@@ -126,5 +143,6 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   restart after an update (no shell), `stop.sh` (only Sparky's processes), llama.cpp checksum, stop without root.
 - **install.ps1** clones `Vicepo/MacSparky`, the repository the updater checks (was `anisayari/sparky`).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).
-- Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model; fine here, watch memory with
-  bigger models (phase 3 adds images on top).
+- Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model, 16 384 once an image model is chosen.
+- **Later (phase 3b):** SDXL on a Mac (should run as is, not tested yet); keep the assistant's cache across the image
+  pause (llama-server slot save / restore) to save the ~30 s reread; Wan / LTX on Macs with 32 GB+.

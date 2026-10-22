@@ -6,6 +6,7 @@ fix it itself if needed, up to MAX_STEPS steps per message.
 """
 import base64, contextlib, io, json, os, random, re, secrets, threading, time, urllib.error, urllib.request, uuid
 
+import psutil
 from PIL import Image, ImageDraw
 
 import config
@@ -64,6 +65,18 @@ def save_settings():
 
 RECENT_IMAGES = 10  # beyond this, the oldest images are turned into text (in batches of 6)
 SIZES = {"square": (1024, 1024), "portrait": (832, 1216), "landscape": (1216, 832)}
+# a Mac with 24 GB or less draws 768x768-sized images (0.56 MP): measured on a 16 GB M3, 55-105 s (cool / warm) instead of ~95 s+ at 1024x1024
+IMAGE_MP = 0.5625 if config.IS_MAC and psutil.virtual_memory().total <= 24.5 * 2**30 else 1.0
+
+
+def mp_size(w, h):
+    """(w, h) brought to IMAGE_MP megapixels, same ratio, multiples of 16."""
+    s = (IMAGE_MP * 1024 * 1024 / (w * h)) ** 0.5
+    return max(256, round(w * s / 16) * 16), max(256, round(h * s / 16) * 16)
+
+
+if IMAGE_MP < 1:
+    SIZES = {k: mp_size(*v) for k, v in SIZES.items()}
 DEFAULT_WEIGHT = {"face": 0.9, "character": 0.45, "style": 0.6, "scene": 0.5}
 DEFAULT_END = {"face": 0.7, "character": 0.6, "style": 1.0, "scene": 1.0}
 ANNOUNCE = re.compile(
@@ -208,7 +221,7 @@ def chat_once(body):
 
 def fit_1mp(im):
     w, h = im.size
-    s = (1024 * 1024 / (w * h)) ** 0.5
+    s = (IMAGE_MP * 1024 * 1024 / (w * h)) ** 0.5
     return im.resize((max(64, round(w * s / 8) * 8), max(64, round(h * s / 8) * 8)), Image.LANCZOS)
 
 
@@ -288,16 +301,21 @@ def build_qwen(prompt, seed, size=None, images=(), lora=None, steps=25):
     return g
 
 
-def build_klein(prompt, seed, size=None, images=(), steps=4, clip="qwen_3_4b_fp4_mixed.safetensors"):
+def build_klein(prompt, seed, size=None, images=(), steps=4, clip="qwen_3_4b_fp4_mixed.safetensors",
+                unet="flux-2-klein-4b-fp8.safetensors", gguf=False):
     """FLUX.2 Klein 4B (distilled, 4 steps): generation, or instruction-based edit when size is None
-    (same framing as image 1). Images are passed as latent references ('image 1', 'image 2'...)."""
+    (same framing as image 1). Images are passed as latent references ('image 1', 'image 2'...).
+    gguf: GGUF files read by ComfyUI-GGUF (Mac: Apple GPUs can't compute with FP8/FP4)."""
     if size is None:
         w, h = Image.open(os.path.join(COMFY_IN, images[0])).size
         size = (max(256, w // 16 * 16), max(256, h // 16 * 16))
-    g = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux-2-klein-4b-fp8.safetensors", "weight_dtype": "default"}},
+    g = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": unet, "weight_dtype": "default"}},
          "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": clip, "type": "flux2", "device": "default"}},
          "3": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}},
          "4": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["2", 0]}}}
+    if gguf:
+        g["1"] = {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": unet}}
+        g["2"] = {"class_type": "CLIPLoaderGGUF", "inputs": {"clip_name": clip, "type": "flux2"}}
     cond = ["4", 0]
     for i, name in enumerate(images[:4]):
         g[f"6{i}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
@@ -322,7 +340,8 @@ INSTRUCT = ("qwen21", "klein")  # engines that understand sentences and edit by 
 def build_instruct(m, prompt, seed, size=None, images=(), steps=None):
     if m.get("engine") == "klein":
         return build_klein(prompt, seed, size=size, images=images, steps=steps or 4,
-                           clip=m.get("clip", "qwen_3_4b_fp4_mixed.safetensors"))
+                           clip=m.get("clip", "qwen_3_4b_fp4_mixed.safetensors"),
+                           unet=m.get("unet", "flux-2-klein-4b-fp8.safetensors"), gguf=bool(m.get("gguf")))
     return build_qwen(prompt, seed, size=size, images=images, lora=m.get("lora"), steps=steps or 25)
 
 
@@ -392,13 +411,18 @@ def record_speed(key, value):
     save_settings()
 
 
+HOOKS = {"around_image": lambda graph: contextlib.nullcontext()}  # set by server.py (small Mac: pause the assistant)
+
+
 def comfy_run(graph):
     if not SETTINGS.get("ckpt"):
         raise RuntimeError("aucun modèle d'image n'est installé : ouvre Paramètres > Bibliothèque de modèles")
-    t0 = time.time()
-    with busy("image"):
-        out = _comfy_run(graph)
-    record_speed("img:" + SETTINGS["ckpt"], time.time() - t0)
+    with HOOKS["around_image"](graph):
+        t0 = time.time()
+        with busy("image"):
+            out = _comfy_run(graph)
+        secs = time.time() - t0  # without the assistant's pause / restart
+    record_speed("img:" + SETTINGS["ckpt"], secs)
     return out
 
 
@@ -1303,7 +1327,7 @@ class Session:
         cx1, cy1 = int(max(0, min(W - side, cx - side / 2))), int(max(0, min(H - side, cy - side / 2)))
         cx2, cy2 = int(min(W, cx1 + side)), int(min(H, cy1 + side))
         crop = src.crop((cx1, cy1, cx2, cy2))
-        k = 1024 / max(crop.size)
+        k = 1024 * IMAGE_MP ** 0.5 / max(crop.size)
         big = crop.resize((round(crop.width * k / 32) * 32, round(crop.height * k / 32) * 32), Image.LANCZOS)
         rel = mk.crop((cx1, cy1, cx2, cy2)).getbbox()
         where = ""

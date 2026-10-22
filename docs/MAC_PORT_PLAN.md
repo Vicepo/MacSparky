@@ -56,6 +56,7 @@ Each phase ends with: tests green on macOS, a commit, a push to `origin`.
 5. **Milestone:** Sparky opens at `http://127.0.0.1:7860`, chat works with a small local model on Metal.
 
 ### Phase 3 — Images, voice, dictation
+Detailed plan: [PHASE3_PLAN.md](PHASE3_PLAN.md).
 1. ComfyUI on MPS: test which catalog image models actually run; add Mac-friendly variants (fp16 / GGUF) where
    FP8/INT8 files fail. Big models (Qwen Image, 16 GB) will not fit in 16 GB — hide them on small Macs.
 2. `stt.py`: MPS device.

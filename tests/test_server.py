@@ -109,3 +109,17 @@ def test_cross_site_requests_are_refused(base):
     assert code == 403
     code, _ = call(base, "/api/version", headers={"Host": "evil.example:7860"})
     assert code == 403
+
+
+# Safari held the last few hundred bytes of the stream: the approval card only appeared after its 15 min timeout
+def test_stream_events_are_padded_for_safari(base):
+    import server
+    s = call(base, "/api/new", {"ephemeral": True})[1]
+    code, raw = call(base, "/api/chat", {"id": s["id"], "ephemeral": True, "text": "hi"})
+    assert code == 200
+    blocks = raw.decode().split("\n\n")
+    events = [json.loads(b[6:]) for b in blocks if b.startswith("data: ")]
+    assert [e["type"] for e in events][:1] == ["ack"] and events[-1]["type"] == "done"
+    pads = [b for b in blocks if b.startswith(":")]
+    assert len(pads) == len([e for e in events if e["type"] not in server.STREAMED]) and all(len(p) > 512 for p in pads)
+    call(base, "/api/delete", {"id": s["id"]})

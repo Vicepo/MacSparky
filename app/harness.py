@@ -51,6 +51,7 @@ SETTINGS = {"llm": None, "ckpt": None, "steps": 30, "cfg": 5.5, "max_steps": 6, 
             "llm_ctx": 0}  # context window of the local assistant, in tokens (0 = automatic, from the memory left)
 INFO_TOOLS = ("search", "fetch", "docs", "tool")  # read-only tools: their results come back as notes
 MAX_INFO = 6  # read-only tool calls per message
+APPROVAL_WAIT = 900  # seconds an approval card waits for the user's answer
 
 
 def load_settings():
@@ -947,13 +948,18 @@ class Session:
         if need == "ask":
             aid = uuid.uuid4().hex[:10]
             preview = str(args.get("content") or "")[:3000] if tool == "write" else ""
-            self._approvals[aid] = {"event": threading.Event(), "decision": "deny"}
+            self._approvals[aid] = {"event": threading.Event(), "decision": "timeout"}
             ev({"type": "approve", "id": aid, "preview": preview} | info)
-            self._approvals[aid]["event"].wait(900)
+            self._approvals[aid]["event"].wait(APPROVAL_WAIT)
             decision = self._approvals.pop(aid)["decision"]
             ev({"type": "approved", "id": aid, "decision": decision})
             if decision == "always":
                 self.config.setdefault("computer_allow", []).append(tool)
+            if decision == "timeout":  # no answer is not a refusal: the assistant used to say "you refused"
+                ev({"type": "cresult", "ok": False, "text": "pas de réponse : demande expirée"})
+                return self._note(f"[SANS RÉPONSE] {tool} {info['summary']} n'a pas été fait : l'utilisateur n'a pas répondu "
+                                  "à la demande d'autorisation à temps. Ne dis pas qu'il a refusé : dis-lui que la demande a "
+                                  "expiré sans réponse et propose de réessayer.")
             if decision not in ("once", "always"):
                 ev({"type": "cresult", "ok": False, "text": "refusé par l'utilisateur"})
                 return self._note(f"[REFUSÉ PAR L'UTILISATEUR] {tool} {info['summary']} n'a pas été autorisé. Ne le refais pas : "

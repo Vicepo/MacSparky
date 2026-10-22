@@ -991,7 +991,7 @@ const EN={
  'Accès complet : Sparky pourra modifier, déplacer, mettre à la corbeille, ouvrir des applications et lancer des commandes sans te demander.\n\nLes dossiers système restent protégés et rien n’est supprimé définitivement. Continuer ?':'Full access: Sparky will be able to modify, move, send to the Recycle Bin, open apps and run commands without asking you.\n\nSystem folders stay protected and nothing is deleted permanently. Continue?',
  'Sparky demande ton autorisation':'Sparky asks for your permission','Contenu qui sera écrit':'Content that will be written','Autoriser':'Allow',
  'Toujours pour cette conversation':'Always in this chat','Refuser':'Deny','Demande expirée.':'Request expired.','en attente de ton accord':'waiting for your approval',
- '✓ Autorisé':'✓ Allowed','✓ Autorisé pour toute la conversation':'✓ Allowed for the whole chat','✗ Refusé':'✗ Denied','résultat':'result',
+ '✓ Autorisé':'✓ Allowed','✓ Autorisé pour toute la conversation':'✓ Allowed for the whole chat','✗ Refusé':'✗ Denied','✗ Pas de réponse (demande expirée)':'✗ No answer (request expired)',"refusé par l'utilisateur":'denied by the user','pas de réponse : demande expirée':'no answer: request expired','résultat':'result',
  'Lister le dossier':'List folder','Lire le fichier':'Read file','Chercher des fichiers':'Search files','Infos':'Info',"Capture d'écran":'Screenshot',
  'Écrire le fichier':'Write file','Créer le dossier':'Create folder','Copier':'Copy','Déplacer / renommer':'Move / rename','Mettre à la corbeille':'Move to Recycle Bin',
  'Ouvrir':'Open','Lancer une commande':'Run a command','Disques':'Disks',
@@ -2308,7 +2308,7 @@ onEvent=function(e,live){
     if(!live){b.querySelectorAll('button').forEach(y=>y.disabled=true);res.textContent=tr('Demande expirée.')}
     d.append(b,res);A().append(d);if(T.pc)T.pc.querySelector('.st').textContent=tr('en attente de ton accord');down(true);return}
   if(e.type==='approved'){const d=APPR[e.id];if(d){d.classList.add('done');d.querySelector('.b').remove();
-      d.querySelector('.res').textContent=tr({once:'✓ Autorisé',always:'✓ Autorisé pour toute la conversation',deny:'✗ Refusé'}[e.decision]||'✗ Refusé')}
+      d.querySelector('.res').textContent=tr({once:'✓ Autorisé',always:'✓ Autorisé pour toute la conversation',deny:'✗ Refusé',timeout:'✗ Pas de réponse (demande expirée)'}[e.decision]||'✗ Refusé')}
     if(live&&e.decision!=='deny')showTyping('');return}
   if(e.type==='cresult'){const d=T?.pc;if(d){const st=d.querySelector('.st');st.className='st '+(e.ok?'ok':'err');st.textContent=e.ok?'✓':'✗ '+(e.text||'');
       if(e.ok&&e.image!=null){const i=new Image();i.src=U(e.image);i.onclick=()=>{$('view').firstChild.src=i.src;$('view').style.display='grid'};d.append(i)}

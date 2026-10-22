@@ -34,6 +34,10 @@ LLMS = catalog.BY_ID    # all models (catalog + Hugging Face additions), filtere
 MAX_BODY = 300 * 2**20  # an attached file is at most 200 MB (base64 makes it a third bigger)
 NO_ASSISTANT = "Aucun assistant n'est installé : ouvre Paramètres > Bibliothèque de modèles."
 SID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4}")  # Session ids (they are folder names)
+# Safari keeps the last few hundred bytes of a streamed response until more arrive: an event followed by a pause
+# (approval card, long tool, model loading) only showed up after the pause. 1 KB of SSE comment pushes it out.
+SAFARI_PAD = b":" + b" " * 1024 + b"\n\n"
+STREAMED = ("typing", "reasoning")  # token by token: the next one follows at once, no padding needed
 sessions = {}           # id -> Session (in memory)
 llm_state = {"name": None, "ctx": 0}  # ctx: context window of the running llama-server
 failed = set()          # models that just failed to load: not retried automatically (the user can retry)
@@ -580,6 +584,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def emit(e):
             try:
                 self.wfile.write(("data: " + json.dumps(e, ensure_ascii=False) + "\n\n").encode())
+                if e.get("type") not in STREAMED:  # a pause may follow (an approval card waits for the user)
+                    self.wfile.write(SAFARI_PAD)
                 self.wfile.flush()
             except OSError:
                 pass  # the tab was closed: the turn continues and stays in the history

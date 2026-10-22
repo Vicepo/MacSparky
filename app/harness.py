@@ -97,13 +97,22 @@ IMAGE MODEL = {label} — these rules REPLACE the SDXL-specific ones above (weig
 - TEXT CHECK: when the image contains requested text, read it letter by letter (accents, spaces, punctuation) and compare with the request; any wrong or extra character = failure, fix it with an edit like: Replace the title text with exactly "Les Néons"."""
 
 
+def image_rules(text, keep):
+    """prompt.md marks the image-only rules with {{images}}...{{/images}}, on their own lines or inside a line.
+    With no image model they are left out (about half the prompt: faster first answer, less to second-guess)."""
+    if keep:
+        return re.sub(r"\{\{/?images\}\}", "", re.sub(r"(?m)^\{\{/?images\}\}\n", "", text))
+    text = re.sub(r"(?ms)^\{\{images\}\}\n.*?^\{\{/images\}\}\n", "", text)
+    return re.sub(r"\n{3,}", "\n\n", re.sub(r"\{\{images\}\}.*?\{\{/images\}\}", "", text))
+
+
 def system_prompt():
     """Re-read on every call: prompt.md can be tweaked without restarting."""
     m = image_model()
     info = (f"{m['label']} ({m.get('style') or 'general'} style)." if SETTINGS["ckpt"] else
             "none installed. You cannot generate or edit images now: if the user asks for one, say so and tell them to "
             "install an image model (Settings > Model library).")
-    base = open(PROMPT_FILE, encoding="utf-8").read() + "\nCurrent image model: " + info
+    base = image_rules(open(PROMPT_FILE, encoding="utf-8").read(), bool(SETTINGS["ckpt"])) + "\nCurrent image model: " + info
     if m.get("engine") in INSTRUCT:
         base += QWEN_NOTES.replace("{label}", m["label"].upper())
     return base

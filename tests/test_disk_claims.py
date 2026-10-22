@@ -182,3 +182,23 @@ def test_an_installed_image_model_is_named(monkeypatch):
     monkeypatch.setitem(harness.SETTINGS, "ckpt", img["ckpt"])
     assert harness.image_model()["label"] == img["label"]
     assert f"Current image model: {img['label']} (" in harness.system_prompt()
+
+
+# C: with no image model the image-only rules of prompt.md are left out; with one, the prompt is unchanged
+def test_image_rules_are_left_out_without_an_image_model(monkeypatch):
+    src = open(harness.PROMPT_FILE, encoding="utf-8").read()
+    assert src.count("{{images}}") == src.count("{{/images}}") > 0
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", None)
+    text = harness.system_prompt()
+    assert "{{" not in text and "\n\n\n" not in text
+    assert "REFERENCES" not in text and '"action":"reply|artifact"' in text and "4. artifact:" in text
+    assert len(text) < 0.6 * len(src)
+
+
+def test_image_rules_are_kept_with_an_image_model(monkeypatch):
+    import catalog
+    img = next(m for m in catalog.CATALOG if m["kind"] == "image" and m.get("ckpt"))
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", img["ckpt"])
+    text = harness.system_prompt()
+    assert "{{" not in text and "REFERENCES (refs)" in text and '"action":"reply|generate|edit|artifact"' in text
+    assert "and create or edit images with tools." in text and "and generate again." in text

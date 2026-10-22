@@ -11,11 +11,12 @@
 #                                        (by default they are chosen in the browser at first launch)
 #   --yes            / SPARKY_YES        answer yes to every question (English unless --lang)
 #   --no-launch      / SPARKY_NOLAUNCH   do not open Sparky at the end
-#   --no-shortcut    / SPARKY_NOSHORTCUT no Sparky.command on the Desktop
+#   --no-shortcut    / SPARKY_NOSHORTCUT no Sparky app in ~/Applications and no Sparky.command on the Desktop
 #
 # What it installs, all inside the Sparky folder (runtime/): a Python environment, PyTorch (Metal / MPS),
-# ComfyUI, llama.cpp (Metal build, checksum verified). Python and Node.js come from Homebrew when missing,
-# only after you say yes. Nothing needs sudo, and Homebrew itself is never installed by this script.
+# ComfyUI, llama.cpp (Metal build, checksum verified), Node.js when the Mac has none (LTS build, checksum
+# verified). Python comes from Homebrew when missing, only after you say yes. Nothing needs sudo, and Homebrew
+# itself is never installed by this script. Outside the folder: ~/Applications/Sparky.app, a launcher.
 #
 # Written for the bash 3.2 that ships with macOS. Everything runs from main() at the very end, so a download
 # cut in the middle of "curl | bash" runs nothing.
@@ -86,7 +87,7 @@ T() {
       step) v='Étape' ;; yn) v='[O/n]' ;; ny) v='[o/N]' ;; logat) v='Journal complet :' ;; dlfail) v='Téléchargement impossible :' ;;
       welcome1) v='Chat, vision, images, code et dictée vocale,' ;; welcome2) v='entièrement sur ce Mac. Rien n'"'"'en sort.' ;;
       s1) v='Vérification de ton Mac' ;; s2) v='Fichiers de Sparky' ;; s3) v='Python' ;; s4) v='Moteur d'"'"'images (PyTorch + ComfyUI)' ;;
-      s5) v='Moteur IA (llama.cpp) et Node.js' ;; s6) v='Diagnostic de ton Mac' ;; s7) v='Raccourci' ;;
+      s5) v='Moteur IA (llama.cpp) et Node.js' ;; s6) v='Diagnostic de ton Mac' ;; s7) v='Application Sparky' ;;
       notmac) v='Cet installateur est pour macOS. Sous Windows : install.ps1.' ;;
       intel) v='Mac Intel : pas d'"'"'accélération GPU, l'"'"'assistant tourne sur le processeur (plus lent).' ;;
       lowdisk) v='Moins de 25 Go libres : les outils prennent ~5 Go, plus 3 à 20 Go par modèle.' ;;
@@ -98,12 +99,13 @@ T() {
       deps) v='Installation des dépendances' ;; mps) v='Accélération GPU (Metal / MPS)' ;; nomps) v='sans accélération GPU' ;;
       llamarel) v='Recherche de la dernière version de llama.cpp' ;; nollama) v='llama.cpp : pas de version pour macOS' ;;
       badsum) v='llama.cpp : somme de contrôle incorrecte, fichier rejeté' ;; sumok) v='somme de contrôle vérifiée' ;;
-      nonode) v='Node.js absent : les projets JavaScript générés ne pourront pas être testés.' ;; brewnode) v='Installer Node.js avec Homebrew ?' ;;
-      nodeinst) v='Installation de Node.js (Homebrew)' ;; scan) v='Analyse du matériel' ;;
+      nonode) v='Node.js absent : les projets JavaScript générés ne pourront pas être testés.' ;;
+      badnode) v='Node.js : somme de contrôle incorrecte, fichier rejeté' ;; scan) v='Analyse du matériel' ;;
       level) v='Niveau :' ;; usable) v='Go utilisables pour les modèles' ;; recommended) v='Recommandé pour ce Mac' ;;
       later) v='Tu choisiras et installeras tes modèles dans le navigateur, au premier lancement.' ;;
-      shortq) v='Créer un raccourci Sparky sur le Bureau ?' ;; shortcut) v='Raccourci sur le Bureau : Sparky.command' ;; noshort) v='Pas de raccourci sur le Bureau' ;;
-      ready) v='Sparky est prêt !' ;; launchhow) v='Lance-le avec Sparky.command (double-clic),' ;; launchhow2) v='ou ./start.sh dans le dossier d'"'"'installation.' ;;
+      shortq) v='Créer aussi un raccourci Sparky sur le Bureau ?' ;; shortcut) v='Raccourci sur le Bureau : Sparky.command' ;; noshort) v='Pas de raccourci sur le Bureau' ;;
+      app) v='Application « Sparky » dans ~/Applications (Spotlight, Launchpad)' ;; noapp) v='~/Applications/Sparky.app appartient à un autre programme : laissée telle quelle' ;;
+      ready) v='Sparky est prêt !' ;; launchhow) v='Lance-le depuis Spotlight ou Launchpad (« Sparky »),' ;; launchhow2) v='ou ./start.sh dans le dossier d'"'"'installation.' ;;
       opening) v='Ouverture de Sparky dans ton navigateur...' ;; bye) v='Amuse-toi bien !' ;; already) v='déjà installé' ;;
       nogit) v='git absent : téléchargement de l'"'"'archive (les mises à jour automatiques demandent git).' ;;
     esac
@@ -113,7 +115,7 @@ T() {
       step) v='Step' ;; yn) v='[Y/n]' ;; ny) v='[y/N]' ;; logat) v='Full log:' ;; dlfail) v='Download failed:' ;;
       welcome1) v='Chat, vision, images, code and voice dictation,' ;; welcome2) v='running entirely on this Mac. Nothing leaves it.' ;;
       s1) v='Checking your Mac' ;; s2) v='Sparky files' ;; s3) v='Python' ;; s4) v='Image engine (PyTorch + ComfyUI)' ;;
-      s5) v='AI engine (llama.cpp) and Node.js' ;; s6) v='System scan' ;; s7) v='Shortcut' ;;
+      s5) v='AI engine (llama.cpp) and Node.js' ;; s6) v='System scan' ;; s7) v='Sparky app' ;;
       notmac) v='This installer is for macOS. On Windows: install.ps1.' ;;
       intel) v='Intel Mac: no GPU acceleration, the assistant runs on the processor (slower).' ;;
       lowdisk) v='Less than 25 GB free: the tools take ~5 GB, plus 3 to 20 GB per model.' ;;
@@ -125,12 +127,13 @@ T() {
       deps) v='Installing dependencies' ;; mps) v='GPU acceleration (Metal / MPS)' ;; nomps) v='no GPU acceleration' ;;
       llamarel) v='Looking up the latest llama.cpp release' ;; nollama) v='llama.cpp: no macOS build found' ;;
       badsum) v='llama.cpp: checksum mismatch, file rejected' ;; sumok) v='checksum verified' ;;
-      nonode) v='Node.js missing: the JavaScript projects Sparky builds cannot be tested.' ;; brewnode) v='Install Node.js with Homebrew?' ;;
-      nodeinst) v='Installing Node.js (Homebrew)' ;; scan) v='Analysing your hardware' ;;
+      nonode) v='Node.js missing: the JavaScript projects Sparky builds cannot be tested.' ;;
+      badnode) v='Node.js: checksum mismatch, file rejected' ;; scan) v='Analysing your hardware' ;;
       level) v='Level:' ;; usable) v='GB usable for models' ;; recommended) v='Recommended for this Mac' ;;
       later) v='You will choose and install your models in the browser, at first launch.' ;;
-      shortq) v='Create a Sparky shortcut on the Desktop?' ;; shortcut) v='Desktop shortcut: Sparky.command' ;; noshort) v='No Desktop shortcut' ;;
-      ready) v='Sparky is ready!' ;; launchhow) v='Launch it with Sparky.command (double-click),' ;; launchhow2) v='or ./start.sh in the install folder.' ;;
+      shortq) v='Also create a Sparky shortcut on the Desktop?' ;; shortcut) v='Desktop shortcut: Sparky.command' ;; noshort) v='No Desktop shortcut' ;;
+      app) v='"Sparky" app in ~/Applications (Spotlight, Launchpad)' ;; noapp) v='~/Applications/Sparky.app belongs to another program: left alone' ;;
+      ready) v='Sparky is ready!' ;; launchhow) v='Open it from Spotlight or Launchpad ("Sparky"),' ;; launchhow2) v='or ./start.sh in the install folder.' ;;
       opening) v='Opening Sparky in your browser...' ;; bye) v='Enjoy!' ;; already) v='already installed' ;;
       nogit) v='git missing: downloading the archive (automatic updates need git).' ;;
     esac
@@ -157,6 +160,41 @@ get_repo() {  # get_repo <label> <url> <dest> <branch>
   tar -xzf "$tmp/src.tar.gz" -C "$tmp" || fail "$1"
   mv "$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)" "$3" || fail "$1"
   rm -rf "$tmp"
+}
+
+APP_ID='local.sparky.launcher'
+# ~/Applications/Sparky.app: a small bundle that runs start.sh, found by Spotlight and Launchpad (no Terminal window).
+# An app of that name that this installer did not make is never replaced.
+make_app() {  # make_app <root> <bundle>
+  local root="$1" app="$2" tmp s
+  [ -n "$root" ] && [ -n "$app" ] || return 1
+  if [ -e "$app" ] && ! grep -qs "$APP_ID" "$app/Contents/Info.plist"; then return 1; fi
+  rm -rf "$app" && mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || return 1
+  cat >"$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Sparky</string>
+  <key>CFBundleDisplayName</key><string>Sparky</string>
+  <key>CFBundleIdentifier</key><string>$APP_ID</string>
+  <key>CFBundleExecutable</key><string>Sparky</string>
+  <key>CFBundleIconFile</key><string>Sparky</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$(tr -cd '0-9A-Za-z.-' <"$root/VERSION" 2>/dev/null)</string>
+  <key>LSUIElement</key><true/>
+</dict></plist>
+PLIST
+  printf '#!/bin/bash\n# Starts Sparky (created by install.sh)\nexec %q\n' "$root/start.sh" >"$app/Contents/MacOS/Sparky" || return 1
+  chmod +x "$app/Contents/MacOS/Sparky"
+  tmp="$(mktemp -d)" || return 0   # no icon: the app still works
+  mkdir "$tmp/Sparky.iconset"
+  for s in 16 32 128 256 512; do
+    sips -z $s $s "$root/app/logo.png" --out "$tmp/Sparky.iconset/icon_${s}x${s}.png" >/dev/null 2>&1
+    sips -z $((s * 2)) $((s * 2)) "$root/app/logo.png" --out "$tmp/Sparky.iconset/icon_${s}x${s}@2x.png" >/dev/null 2>&1
+  done
+  iconutil -c icns "$tmp/Sparky.iconset" -o "$app/Contents/Resources/Sparky.icns" >>"$LOG" 2>&1
+  rm -rf "$tmp"
+  touch "$app"   # Finder and Launchpad pick up the new icon
 }
 
 # ------------------------------------------------------------------ main
@@ -307,13 +345,32 @@ for r in json.load(open(sys.argv[1])):
     "$LLAMA/llama-server" --version >>"$LOG" 2>&1 || fail "llama.cpp: llama-server --version"
     ok "llama.cpp $tag   ·   Metal $arch"
   fi
-  # Node.js: runs and tests the JavaScript projects the assistant builds (optional)
-  if command -v node >/dev/null 2>&1; then
+  # Node.js: runs and tests the JavaScript projects the assistant builds (optional). The Mac's own node is used
+  # when there is one; otherwise the LTS build goes into runtime/node (no Homebrew, removed with the folder)
+  local NODE="$RUNTIME/node"
+  if [ -x "$NODE/bin/node" ]; then
+    ok "Node.js $("$NODE/bin/node" --version)   ($(T already))"
+  elif command -v node >/dev/null 2>&1; then
     ok "Node.js $(node --version)"
-  elif command -v brew >/dev/null 2>&1 && ask "$(T brewnode)" y; then
-    run "$(T nodeinst)" brew install node
   else
-    warn "$(T nonode)"
+    local tmp nv nfile want
+    tmp="$(mktemp -d)" || fail "mktemp"
+    nv="$(curl -fsSL https://nodejs.org/dist/index.json 2>>"$LOG" | "$VPY" -I -c '
+import json, sys
+print(next((r["version"] for r in json.load(sys.stdin) if r["lts"] and "osx-" + sys.argv[1] + "-tar" in r["files"]), ""))
+' "$arch" 2>>"$LOG")"
+    if [ -n "$nv" ]; then
+      nfile="node-$nv-darwin-$arch.tar.gz"
+      fetch "Node.js $nv" "https://nodejs.org/dist/$nv/$nfile" "$tmp/$nfile"
+      curl -fsSL "https://nodejs.org/dist/$nv/SHASUMS256.txt" -o "$tmp/sums" || fail "$(T dlfail) SHASUMS256.txt"
+      want="$(awk -v f="$nfile" '$2 == f {print $1}' "$tmp/sums")"
+      [ -n "$want" ] && [ "$(shasum -a 256 "$tmp/$nfile" | cut -d' ' -f1)" = "$want" ] || fail "$(T badnode)"
+      mkdir -p "$NODE" && tar -xzf "$tmp/$nfile" -C "$NODE" --strip-components 1 || fail "Node.js"
+      ok "Node.js $nv   ·   $(T sumok) (sha256)"
+    else
+      warn "$(T nonode)"
+    fi
+    rm -rf "$tmp"
   fi
 
   # ---------------------------------------------------------------- 6. scan + models
@@ -334,6 +391,7 @@ print("\n    " + title)
 for k, lab in (("llm", "Assistant"), ("image", "Images"), ("voice", "Voice")):
     if k in rec:
         print("      %-11s%-31s%6.1f %s" % (lab, rec[k]["label"], rec[k]["size_gb"], gb))
+print("      %-42s%6.1f %s" % ("Total", sum(rec[k]["size_gb"] for k in ("llm", "image", "voice") if k in rec), gb))
 ' "$scan" "$GB" "$(T level)" "$(T usable)" "$(T recommended)" "$C_G" "$C_Y" "$C_0"
   if [ -n "$MODELS" ]; then
     echo; "$VPY" app/models_cli.py --recommended "--lang=$L"
@@ -341,9 +399,12 @@ for k, lab in (("llm", "Assistant"), ("image", "Images"), ("voice", "Voice")):
     info "$(T later)"
   fi
 
-  # ---------------------------------------------------------------- 7. shortcut
+  # ---------------------------------------------------------------- 7. app + shortcut
   step "$(T s7)"
   chmod +x "$ROOT/start.sh" "$ROOT/stop.sh" "$ROOT/Sparky.command" 2>/dev/null
+  if [ -z "$NOSHORT" ]; then
+    if make_app "$ROOT" "$HOME/Applications/Sparky.app"; then ok "$(T app)"; else warn "$(T noapp)"; fi
+  fi
   local lnk="$HOME/Desktop/Sparky.command"
   if [ -z "$NOSHORT" ] && [ -d "$HOME/Desktop" ] && ask "$(T shortq)" y; then
     printf '#!/bin/bash\n# Starts Sparky (created by install.sh)\nexec %q\n' "$ROOT/start.sh" >"$lnk" && chmod +x "$lnk"

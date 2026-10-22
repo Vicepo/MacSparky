@@ -98,3 +98,17 @@ def test_mac_uninstall_only_deletes_a_sparky_folder_after_asking():
     assert sh.rstrip().endswith('\nmain "$@"')
     assert '[ ! -f "$ROOT/app/server.py" ]' in sh and '[ "$ROOT" = "$HOME" ]' in sh
     assert '[ "$r" = yes ]' in sh and "stop.sh" in sh
+
+
+def test_mac_installer_app_bundle_never_replaces_another_app():
+    """~/Applications/Sparky.app is only (re)written when install.sh made it; node is checked like llama.cpp."""
+    sh = read("install.sh")
+    assert "APP_ID='local.sparky.launcher'" in sh and '! grep -qs "$APP_ID" "$app/Contents/Info.plist"; then return 1' in sh
+    assert "SHASUMS256.txt" in sh and "badnode" in sh
+    assert 'rm -rf "$(' not in sh  # a failed command substitution must never become "rm -rf /"
+
+
+def test_mac_uninstall_removes_only_its_own_app():
+    sh = read("uninstall.sh")
+    assert 'grep -qF "$ROOT/start.sh" "$app/Contents/MacOS/Sparky" 2>/dev/null || app=\'\'' in sh
+

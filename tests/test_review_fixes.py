@@ -205,3 +205,13 @@ def test_listeners_work_without_root_on_macos(monkeypatch):
     monkeypatch.setattr(server.psutil, "net_connections", denied)
     monkeypatch.setattr(server.psutil, "process_iter", lambda attrs=None: procs)
     assert server.listeners(8080, "llama") == [procs[0]]  # not the other program on 8080, not the other port
+
+
+def test_bundled_node_is_found_in_the_tarball_layout(tmp_path, monkeypatch):
+    """macOS installer: runtime/node/bin/node (Windows zip: runtime/node/node.exe)."""
+    import checker, config
+    monkeypatch.setattr(config, "RUNTIME", str(tmp_path))
+    (tmp_path / "node" / "bin").mkdir(parents=True)
+    (tmp_path / "node" / "bin" / "node").write_text("")
+    assert checker.node_dir() == str(tmp_path / "node" / "bin")
+

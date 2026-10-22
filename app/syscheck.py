@@ -45,6 +45,15 @@ def apple_silicon():
     return config.IS_MAC and (platform.machine() == "arm64" or _sysctl("hw.optional.arm64") == "1")
 
 
+def metal_share(ram):
+    """(GB the Apple GPU may use, True if set by hand). macOS gives Metal 2/3 of the memory up to 36 GB, 3/4 above;
+    `sudo sysctl iogpu.wired_limit_mb=...` changes that until the next restart."""
+    limit = _sysctl("iogpu.wired_limit_mb")
+    if limit.isdigit() and int(limit) > 0:
+        return int(limit) / 1024, True
+    return ram * (2 / 3 if ram <= 36 else 3 / 4), False
+
+
 def detect():
     import psutil
     ram = psutil.virtual_memory().total / 2**30
@@ -52,7 +61,9 @@ def detect():
         or platform.processor() or "?"
     gpus = []
     if apple_silicon():  # the GPU is in the chip and shares the memory (Metal)
-        gpus.append({"name": f"{cpu.strip()} GPU", "vram_gb": round(ram, 1), "driver": "Metal", "vendor": "apple"})
+        share, manual = metal_share(ram)
+        gpus.append({"name": f"{cpu.strip()} GPU", "vram_gb": round(share, 1), "driver": "Metal", "vendor": "apple",
+                     "wired_limit": manual})
     out = _run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"])
     for line in out.splitlines():
         p = [x.strip() for x in line.split(",")]
@@ -77,8 +88,11 @@ def assess(hw):
     apple = bool(g) and g["vendor"] == "apple"
     unified = bool(g) and (apple or any(h in name for h in UNIFIED_HINTS) or abs(g["vram_gb"] - hw["ram_gb"]) < 0.12 * hw["ram_gb"])
     if apple:
-        # macOS lets Metal use ~2/3 of the memory, and needs ~6 GB for itself and the apps: 16 GB -> 10 GB for models
-        mode, mem = "unified", max(0.0, min(hw["ram_gb"] * 0.7, hw["ram_gb"] - 6.0))
+        # macOS lets Metal use ~2/3 of the memory, and needs ~6 GB for itself and the apps: 16 GB -> 10 GB for models.
+        # A wired limit set by hand is what Metal really gets: use it, minus 1 GB, and keep 4 GB for macOS
+        ram = hw["ram_gb"]
+        mem = min(g["vram_gb"] - 1.0, ram - 4.0) if g.get("wired_limit") else min(ram * 0.7, ram - 6.0)
+        mode, mem = "unified", max(0.0, mem)
     elif g and unified:
         mode, mem = "unified", g["vram_gb"] - 2.0      # memory shared by CPU + GPU, keep enough to run Windows
     elif g:

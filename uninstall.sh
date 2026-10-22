@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstalls Sparky (macOS): stops it, then deletes the install folder and the Desktop shortcut.
+# Uninstalls Sparky (macOS): stops it, then deletes the install folder, ~/Applications/Sparky.app and the Desktop shortcut.
 # Everything Sparky installed lives in that folder (runtime/, models/, data/): chats and models go with it.
 # Python and Node.js from Homebrew are left alone (other programs may use them).
 #
@@ -10,7 +10,7 @@
 # Written for the bash 3.2 that ships with macOS. Everything runs from main() at the very end.
 
 main() {
-  local YES='' ROOT lnk r k v outside=''
+  local YES='' ROOT lnk app r k v outside=''
   case "${1:-}" in
     --yes|-y) YES=1 ;; '') ;; *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -22,10 +22,14 @@ main() {
   lnk="$HOME/Desktop/Sparky.command"
   # the shortcut written by install.sh, only when it starts this install
   grep -qF "$ROOT/start.sh" "$lnk" 2>/dev/null || lnk=''
+  # the app written by install.sh, only when it starts this install
+  app="$HOME/Applications/Sparky.app"
+  grep -qF "$ROOT/start.sh" "$app/Contents/MacOS/Sparky" 2>/dev/null || app=''
 
   echo "Sparky will be removed:"
   echo "  $ROOT   ($(du -sh "$ROOT" 2>/dev/null | cut -f1), with your chats, documents and models)"
   [ -n "$lnk" ] && echo "  $lnk"
+  [ -n "$app" ] && echo "  $app"
   if [ -f "$ROOT/config.json" ]; then
     for k in runtime_dir comfy_dir llama_server llm_dir mmproj_dir voice_dir embed_dir data_dir; do
       v="$(plutil -extract "$k" raw -o - "$ROOT/config.json" 2>/dev/null)" || continue
@@ -41,6 +45,7 @@ main() {
   fi
   "$ROOT/stop.sh" >/dev/null 2>&1
   [ -n "$lnk" ] && rm -f "$lnk"
+  [ -n "$app" ] && rm -rf "$app"
   cd / && rm -rf "$ROOT" || { echo "Could not delete $ROOT" >&2; exit 1; }
   echo "Sparky is uninstalled."
 }

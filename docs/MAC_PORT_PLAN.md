@@ -117,6 +117,13 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   4-message check (image refused with the install hint, code artifact or short reply, chat, explanation).
 - Note: running tests while Sparky answers chats makes both slow on 16 GB (338 s instead of 25 s for the suite).
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
+- **Taken from upstream PR anisayari/sparky#1** (EnzoDeg40, macOS part 1), where it was ahead of us: Whisper dictation on
+  MPS (phase 3 item, measured on the M3: 2.4 s instead of 6.0 s on the CPU, same text), `node` / `npm` without `.exe` /
+  `.cmd` in `checker.py` (phase 5 item), a portable Node.js LTS in `runtime/node` when the Mac has none (we add a sha256
+  check against `SHASUMS256.txt`), `~/Applications/Sparky.app` for Spotlight / Launchpad (we never replace an app we did
+  not make; `uninstall.sh` removes it; tested via `open`: the server outlives the launcher), the Metal wired limit
+  (`iogpu.wired_limit_mb`) in the scan, and the README's macOS section. Not taken, ours is safer or already done:
+  restart after an update (no shell), `stop.sh` (only Sparky's processes), llama.cpp checksum, stop without root.
 - **install.ps1** clones `Vicepo/MacSparky`, the repository the updater checks (was `anisayari/sparky`).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).
 - Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model; fine here, watch memory with

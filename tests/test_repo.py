@@ -62,7 +62,7 @@ def test_generated_projects_load_from_the_preview_origin_only():
     assert '"/api/proj/"' not in read("app/server.py").split("class PreviewHandler")[0]
 
 
-SHELL_SCRIPTS = ["install.sh", "start.sh", "stop.sh", "Sparky.command"]
+SHELL_SCRIPTS = ["install.sh", "start.sh", "stop.sh", "uninstall.sh", "Sparky.command"]
 
 
 @pytest.mark.parametrize("script", SHELL_SCRIPTS)
@@ -91,3 +91,10 @@ def test_mac_stop_script_only_stops_sparky_processes():
     """stop.sh must not kill another program that happens to listen on 8080 / 8188."""
     sh = read("stop.sh")
     assert "app/server.py" in sh and "llama-server" in sh and "main.py" in sh and "not Sparky" in sh
+
+
+def test_mac_uninstall_only_deletes_a_sparky_folder_after_asking():
+    sh = read("uninstall.sh")
+    assert sh.rstrip().endswith('\nmain "$@"')
+    assert '[ ! -f "$ROOT/app/server.py" ]' in sh and '[ "$ROOT" = "$HOME" ]' in sh
+    assert '[ "$r" = yes ]' in sh and "stop.sh" in sh

@@ -119,7 +119,7 @@ def _headers(pid):
     if conf(pid).get("key"):
         h["Authorization"] = "Bearer " + conf(pid)["key"]
     if pid == "openrouter":
-        h |= {"HTTP-Referer": "https://github.com/anisayari/sparky", "X-Title": "Sparky"}
+        h |= {"HTTP-Referer": "https://github.com/Vicepo/MacSparky", "X-Title": "Sparky"}
     return h
 
 

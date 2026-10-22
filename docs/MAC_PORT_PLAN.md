@@ -117,7 +117,7 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   4-message check (image refused with the install hint, code artifact or short reply, chat, explanation).
 - Note: running tests while Sparky answers chats makes both slow on 16 GB (338 s instead of 25 s for the suite).
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
-- **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
+- **install.ps1** clones `Vicepo/MacSparky`, the repository the updater checks (was `anisayari/sparky`).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).
 - Context window: `auto_ctx` picks 65 536 tokens on a 16 GB Mac with the 4B model; fine here, watch memory with
   bigger models (phase 3 adds images on top).

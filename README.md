@@ -148,7 +148,7 @@ Sparky Bot is a friend-like companion that **remembers you, learns your style an
 **One line**, in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/anisayari/sparky/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Vicepo/MacSparky/main/install.ps1 | iex
 ```
 
 **Or** download the project (*Code > Download ZIP*), unzip it and double-click `install.bat`.
@@ -251,7 +251,7 @@ runtime\venv\Scripts\python.exe app\models_cli.py qwen359        # install one m
 ## ⬆️ Update / uninstall
 
 - **Update**: Sparky checks GitHub once an hour. When a new version is out, a message offers to **install the update**: Sparky runs `git pull` and restarts by itself. If files were modified locally, it lists them and gives the command to put them aside first; for an install made from the ZIP, it gives the install command to run again. The current version is in *Settings > Version* (and in the `VERSION` file).
-- **Uninstall**: `stop.bat`, then delete the install folder (`%LOCALAPPDATA%\Sparky` by default) and the shortcuts.
+- **Uninstall**: `stop.bat`, then delete the install folder (`%LOCALAPPDATA%\Sparky` by default) and the shortcuts. On macOS: `./uninstall.sh` in the install folder (it stops Sparky, then deletes the folder and the Desktop shortcut after asking).
 
 ## ☁️ Cloud models (optional)
 

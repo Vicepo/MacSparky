@@ -1,7 +1,7 @@
 # Sparky - installer (Windows 10/11, x64 or ARM64)
 #
 #   From the project folder : powershell -ExecutionPolicy Bypass -File install.ps1
-#   One line                : irm https://raw.githubusercontent.com/anisayari/sparky/main/install.ps1 | iex
+#   One line                : irm https://raw.githubusercontent.com/Vicepo/MacSparky/main/install.ps1 | iex
 #
 # Options (or environment variables for the one-line install):
 #   -Lang en|fr      / $env:SPARKY_LANG      interface and installer language
@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
-$Repo = 'https://github.com/anisayari/sparky'
+$Repo = 'https://github.com/Vicepo/MacSparky'
 if (-not $Lang -and $env:SPARKY_LANG) { $Lang = $env:SPARKY_LANG }
 if (-not $Dir -and $env:SPARKY_DIR) { $Dir = $env:SPARKY_DIR }
 if ($env:SPARKY_MODELS) { $Models = $true }

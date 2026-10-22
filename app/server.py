@@ -756,10 +756,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def settings(self, path):
         known = {m["ckpt"] for m in catalog.CATALOG if m["kind"] == "image"}
-        # checkpoints put in ComfyUI by hand are SDXL files: not validated on a Mac yet (catalog.runs_here)
-        others = [] if config.IS_MAC else [c for c in checkpoints() if c not in known and not catalog.blocked(c)]
+        others = [c for c in checkpoints() if c not in known and not catalog.blocked(c)]
         self.send(200, {"settings": harness.SETTINGS, "catalog": catalog.listing(harness.SETTINGS),
-                        "hiddenHere": sum(not catalog.runs_here(m) for m in catalog.CATALOG),
                         "otherCheckpoints": others, "active": {"llm": llm_state["name"], "voice": voice_model()[0]["id"], "video": (studio.video_model() or {}).get("id"), "ctx": llm_state["ctx"],
                                    "autoCtx": auto_ctx(catalog.BY_ID.get(llm_state["name"]) or {})},
                         "syscheck": syscheck.current(), "onboarded": bool(harness.SETTINGS.get("onboarded"))})
@@ -827,7 +825,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def studio_lib(self, path):
         q = self.query()
         vm = studio.video_model()
-        vids = [m for m in catalog.CATALOG if m["kind"] == "video" and catalog.runs_here(m)]
+        vids = [m for m in catalog.CATALOG if m["kind"] == "video"]
         self.send(200, {"items": studio.library(q.get("kind", "all")), "jobs": studio.status(),
                         "video": {"id": vm["id"], "label": vm["label"], "audio": vm.get("audio", False)} if vm else None,
                         "videoModels": [{"id": m["id"], "label": m["label"], "installed": catalog.installed(m), "size_gb": m["size_gb"],

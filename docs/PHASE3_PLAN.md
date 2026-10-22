@@ -7,9 +7,10 @@ difference, so `git merge upstream/main` stays easy. Each work item ends with te
 ## 0. Results (2026-10-22) and changes vs. this plan
 
 Numbers: MAC_PORT_PLAN.md, phase 3. What was done differently from the sections below, and why:
-- **Klein only.** SDXL (S1–S4) was not tested, to halve the downloads; SDXL models are hidden on a Mac until then.
-- **Visibility is a whitelist, not a file-name rule:** on a Mac only engines validated there are shown (`MAC_ENGINES =
-  ("klein",)`), and FP8/FP4 files are refused on top. Qwen-Image and video stay hidden even on a big Mac (untested).
+- **Klein only.** SDXL (S1–S4) was not tested, to halve the downloads.
+- **Nothing is hidden, only Klein is recommended:** `validated_here()` (engines in `MAC_ENGINES = ("klein",)`, no FP8/FP4
+  file) decides the recommendation; every other image / video model stays installable with a tag (`mac_note()`:
+  "not tested on a Mac", or "FP8: fails on a Mac"). A first version hid them; shown again at the user's request.
 - **Q8_0 only from 32 GB** (critical pressure on 16 GB); **image size 768x768-equivalent** (0.56 MP) on Macs with 24 GB
   or less (`harness.IMAGE_MP`), the same for the chat, Studio, edits and references.
 - **The assistant pauses during each image on Macs with 24 GB or less** (`server.room_for_image`): the plan expected both

@@ -17,7 +17,6 @@ import harness
 DIR = os.path.join(config.DATA, "studio")
 INDEX = os.path.join(DIR, "index.json")
 ASPECTS = {"16:9": (16, 9), "9:16": (9, 16), "1:1": (1, 1), "4:3": (4, 3), "3:4": (3, 4)}
-VIDEO_MAC = "La vidéo n'est pas encore disponible sur Mac : aucun modèle vidéo n'est validé sur Apple Silicon."
 IMAGE_SIZES = {"16:9": (1216, 688), "9:16": (688, 1216), "1:1": (1024, 1024), "4:3": (1152, 864), "3:4": (864, 1152)}
 VIDEO_NEGATIVE = "blurry, low quality, distorted, deformed, watermark, text, subtitles, static, frozen"
 MAX_SECONDS = 10
@@ -127,9 +126,9 @@ def source_image(ref):
 def video_model():
     """Catalog entry of the chosen video model (setting "video"), else the first installed one."""
     import catalog
-    vids = [m for m in catalog.CATALOG if m["kind"] == "video" and catalog.runs_here(m)]
+    vids = [m for m in catalog.CATALOG if m["kind"] == "video"]
     m = catalog.BY_ID.get(harness.SETTINGS.get("video"))
-    if m in vids and catalog.installed(m):
+    if m and m["kind"] == "video" and catalog.installed(m):
         return m
     return next((v for v in vids if catalog.installed(v)), None)
 
@@ -316,8 +315,6 @@ def _run(job):
         Image.open(out).convert("RGB").save(os.path.join(DIR, mid + ".png"))
         return _add(item | {"type": "image", "file": mid + ".png", "model": m.get("label"), "secs": round(time.time() - t0)})
     m = video_model()
-    if not m and config.IS_MAC:
-        raise RuntimeError(VIDEO_MAC)
     if not m:
         raise RuntimeError("aucun modèle vidéo installé : ouvre la Bibliothèque de modèles (filtre Vidéos)")
     job["status"] = "memory"

@@ -53,64 +53,58 @@ def test_klein_elsewhere_keeps_its_fp8_files(not_mac):
     assert m["files"][0][:2] == ("black-forest-labs/FLUX.2-klein-4b-fp8", "flux-2-klein-4b-fp8.safetensors")
 
 
-def test_runs_here_on_a_mac(mac, monkeypatch):
+def test_only_klein_gguf_is_validated_on_a_mac(mac, monkeypatch):
     ram(monkeypatch, 16)
-    assert catalog.runs_here(catalog.klein_mac())
+    assert catalog.validated_here(catalog.klein_mac()) and catalog.mac_note(catalog.klein_mac()) is None
     with monkeypatch.context() as mp:
         mp.setattr(config, "IS_MAC", False)
         fp8_klein = catalog.klein()
-    assert not catalog.runs_here(fp8_klein)  # same engine, FP8 files
-    for mid in ("juggernaut", "animagine", "qwen21", "ltx25", "wan22-5b"):
-        assert not catalog.runs_here(catalog.BY_ID[mid]), mid
+    assert not catalog.validated_here(fp8_klein) and catalog.mac_note(fp8_klein) == "fp8"  # same engine, FP8 files
+    for mid in ("juggernaut", "animagine", "qwen21", "ltx25"):
+        assert catalog.mac_note(catalog.BY_ID[mid]) == "untested", mid
+    assert catalog.mac_note(catalog.BY_ID["wan22-5b"]) == "fp8"  # its text encoder is umt5 FP8
     for m in catalog.CATALOG:
         if m["kind"] in ("llm", "voice", "embed"):
-            assert catalog.runs_here(m), m["id"]
+            assert catalog.validated_here(m) and catalog.mac_note(m) is None, m["id"]
     sdxl = catalog.ckpt("hf:x", "x", 3, "someone/x", "x.safetensors", 6.5)
-    assert not catalog.runs_here(sdxl)
+    assert catalog.mac_note(sdxl) == "untested"
+    assert catalog.mac_note(catalog.ckpt("hf:y", "y", 3, "someone/y", "y_fp8.safetensors", 6.5)) == "fp8"
 
 
-def test_runs_here_elsewhere_is_always_true(not_mac):
-    assert all(catalog.runs_here(m) for m in catalog.CATALOG)
+def test_no_mac_note_elsewhere(not_mac):
+    assert all(catalog.validated_here(m) and catalog.mac_note(m) is None for m in catalog.CATALOG)
 
 
 def _listing():
     return catalog.listing({"speed": {}})
 
 
-def test_library_on_a_mac_hides_what_cannot_run(mac):
-    ids = {m["id"] for m in _listing()}
-    assert not ids & {"juggernaut", "animagine", "qwen21", "ltx25", "wan22-5b"}
-    assert {"qwen354"} <= ids
+def test_library_on_a_mac_shows_every_model_with_a_tag(mac):
+    rows = {m["id"]: m for m in _listing()}
+    assert {"juggernaut", "animagine", "qwen21", "ltx25", "wan22-5b", "qwen354"} <= rows.keys()
+    assert rows["juggernaut"]["macNote"] == "untested" and rows["wan22-5b"]["macNote"] == "fp8"
+    assert rows["qwen354"]["macNote"] is None
 
 
-def test_library_elsewhere_shows_everything(not_mac):
-    ids = {m["id"] for m in _listing()}
-    assert {"klein4b", "juggernaut", "animagine", "qwen21", "ltx25", "wan22-5b"} <= ids
+def test_library_elsewhere_has_no_tag(not_mac):
+    rows = _listing()
+    assert {"klein4b", "juggernaut", "qwen21", "ltx25", "wan22-5b"} <= {m["id"] for m in rows}
+    assert all(m["macNote"] is None for m in rows)
 
 
-def test_install_of_a_hidden_model_is_refused_on_a_mac(mac, monkeypatch):
-    monkeypatch.setattr(catalog, "remote_size", lambda *a: pytest.fail("no download for a model that can't run"))
+def test_an_untested_model_can_be_installed_on_a_mac(mac, monkeypatch):
+    seen = []
+    monkeypatch.setattr(catalog, "remote_size", lambda repo, file: seen.append(file) or 0)
+    monkeypatch.setattr(catalog, "fetch", lambda *a, **k: None)
+    monkeypatch.setattr(catalog.os, "replace", lambda a, b: None)
     catalog.jobs["juggernaut"] = {"done": 0, "total": 1, "state": "running", "error": ""}
     catalog._install("juggernaut")
-    assert catalog.jobs["juggernaut"]["state"] == "error" and catalog.jobs["juggernaut"]["error"] == catalog.NOT_HERE
-    del catalog.jobs["juggernaut"]
+    assert catalog.jobs.pop("juggernaut")["state"] == "ok" and "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors" in seen
 
 
-def test_hugging_face_image_models_are_refused_on_a_mac(mac, monkeypatch):
-    monkeypatch.setattr(catalog, "hf_get", lambda path: pytest.fail("no Hugging Face call"))
-    for call in (lambda: catalog.hf_search("juggernaut", "image"), lambda: catalog.hf_files("a/b", "image")):
-        with pytest.raises(RuntimeError, match="FLUX.2 Klein"):
-            call()
-
-
-def test_image_speed_estimate_on_a_mac_is_the_measured_one(mac, monkeypatch):
-    ram(monkeypatch, 16)
-    m = catalog.klein_mac()
-    a = {"model_mem_gb": 10, "bandwidth": 84, "image_gb": 8.0, "images": True, "mode": "unified"}
-    ind = catalog.indicators(m, None, {"assess": a})
-    assert ind["secs"] == 80 and ind["speed"] == 1 and ind["fit"] == 1
-    assert catalog.indicators(m, None, {"assess": a | {"bandwidth": 336}})["secs"] < 30  # bigger GPU (M3 Max)
-    assert catalog.indicators(m, 40, {"assess": a})["secs"] == 40  # a measured speed wins
+def test_hugging_face_image_search_works_on_a_mac(mac, monkeypatch):
+    monkeypatch.setattr(catalog, "hf_get", lambda path: [{"id": "RunDiffusion/Juggernaut-XL-v9", "downloads": 9, "likes": 1}])
+    assert catalog.hf_search("juggernaut", "image")[0]["repo"] == "RunDiffusion/Juggernaut-XL-v9"
 
 
 # ---------------------------------------------------------------- ComfyUI-GGUF extension
@@ -276,21 +270,19 @@ def test_choosing_klein_elsewhere_never_restarts_the_assistant(not_mac, monkeypa
     assert "launch" not in calls and "comfy:UnetLoaderGGUF" not in calls and calls[-1] == "warmup:UNETLoader"
 
 
-def test_settings_api_counts_hidden_models(mac, monkeypatch):
+def test_settings_api_lists_hand_placed_checkpoints_on_a_mac(mac, monkeypatch):
     monkeypatch.setattr(server, "checkpoints", lambda: ["my_sdxl.safetensors"])
     sent = {}
     h = types.SimpleNamespace(send=lambda code, body: sent.update(code=code, body=body))
     server.Handler.settings(h, "/api/settings")
-    # every image / video model except a GGUF Klein (on CI the catalog was built off a Mac: its Klein is FP8, hidden too)
-    hidden = sum(m["kind"] in ("image", "video") and not m.get("gguf") for m in catalog.CATALOG)
-    assert hidden >= 5 and sent["body"]["hiddenHere"] == hidden and sent["body"]["otherCheckpoints"] == []
+    assert sent["body"]["otherCheckpoints"] == ["my_sdxl.safetensors"] and "hiddenHere" not in sent["body"]
 
 
 # ---------------------------------------------------------------- Studio
-def test_studio_has_no_video_model_on_a_mac(mac, monkeypatch):
-    monkeypatch.setattr(catalog, "installed", lambda m: True)
+def test_studio_can_use_a_video_model_on_a_mac(mac, monkeypatch):
+    monkeypatch.setattr(catalog, "installed", lambda m: m["id"] == "ltx25")
     monkeypatch.setitem(harness.SETTINGS, "video", "ltx25")
-    assert studio.video_model() is None
+    assert studio.video_model()["id"] == "ltx25"
 
 
 # ---------------------------------------------------------------- the assistant pauses during each image (small Mac)

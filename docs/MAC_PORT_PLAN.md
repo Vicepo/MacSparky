@@ -101,8 +101,9 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
     assistant comes back (~6 s, plus ~30 s for it to reread the conversation). Live: 5 chat images including an edit,
     pressure never above "warning", no swap growth. The assistant also restarts once at 16 384 tokens of context when an
     image model is chosen (65 536 → 16 384 saves 0.8 GB with the 4B model).
-  - **Shown on a Mac:** only Klein for images; SDXL, Qwen-Image, video and Hugging Face image models are hidden (not
-    validated on MPS), with a "N models hidden" line in the library and a message in Studio's video tab.
+  - **On a Mac only Klein is recommended.** The other image / video models and Hugging Face image models stay in the
+    library and can be installed, tagged "not tested on a Mac" (SDXL, Qwen-Image, LTX) or "FP8: fails on a Mac" (Wan:
+    its umt5 text encoder is FP8, which Apple GPUs can't compute with).
   - **Dictation** (Whisper turbo on MPS, fp16): same text as the CPU in French and English, 2.5 s for 6.6 s of speech.
   - **Read-aloud** (Piper `en_US-lessac-medium`, `fr_FR-siwis-medium`): ~6x faster than real time; Whisper hears back the
     exact sentence; `test_real_synthesis` runs locally.

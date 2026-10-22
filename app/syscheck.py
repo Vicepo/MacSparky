@@ -135,7 +135,7 @@ def recommend(sysinfo):
     a = sysinfo["assess"]
     if a["images"]:
         # FLUX.2 Klein 4B: ~3 s per image, 7 GB; Qwen-Image (nicer, 10x slower) stays in the library
-        imgs = [m for m in catalog.CATALOG if m["kind"] == "image" and not m.get("custom") and catalog.runs_here(m)]
+        imgs = [m for m in catalog.CATALOG if m["kind"] == "image" and not m.get("custom") and catalog.validated_here(m)]
         fits = [m for m in imgs if catalog.indicators(m, sysinfo=sysinfo)["fit"] >= 1]
         pick = next((m for m in fits if m.get("engine") == "klein"), None) or (max(fits, key=lambda m: m["quality"]) if fits else None)
         out["image"] = pick["id"] if pick else None

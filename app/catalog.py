@@ -140,16 +140,21 @@ MAC_ENGINES = ("klein",)  # image / video engines validated on Apple Silicon (po
 LOW_PRECISION = re.compile(r"fp8|fp4|mxfp", re.I)  # file formats Apple GPUs (MPS) can't compute with
 
 
-def runs_here(m):
-    """False for a model that can't run on this machine. On a Mac: image and video models not validated on MPS yet
-    (SDXL, Qwen-Image, video) and any FP8/FP4 file. Elsewhere: always True."""
+def validated_here(m):
+    """False for an image / video model not validated on a Mac yet (SDXL, Qwen-Image, video) or with FP8/FP4 files.
+    Only validated models are recommended; the others stay in the library with a tag (mac_note). Elsewhere: True."""
     if not config.IS_MAC or m["kind"] not in ("image", "video"):
         return True
     return m.get("engine") in MAC_ENGINES and not any(f and LOW_PRECISION.search(f[1]) for f in m["files"])
 
 
-NOT_HERE = "Ce modèle ne tourne pas sur ce Mac (pas encore validé sur Apple Silicon)."
-HF_IMAGE_MAC = "Sur Mac, les modèles d'image de Hugging Face (SDXL) ne sont pas encore validés : utilise FLUX.2 Klein 4B."
+def mac_note(m):
+    """Library tag on a Mac: "fp8" (FP8/FP4 files: Apple GPUs can't compute with them, tested), "untested", or None."""
+    if validated_here(m):
+        return None
+    return "fp8" if any(f and LOW_PRECISION.search(f[1]) for f in m["files"]) else "untested"
+
+
 GGUF_NODE = ("https://github.com/city96/ComfyUI-GGUF", "6ea2651e7df66d7585f6ffee804b20e92fb38b8a")  # reviewed commit
 GGUF_PKG = "gguf==0.19.0"  # same pin as requirements.txt
 GGUF_DIR = os.path.join(config.COMFY_DIR, "custom_nodes", "ComfyUI-GGUF")
@@ -308,8 +313,6 @@ def remote_size(repo, file):
 def _install(mid):
     m, job = BY_ID[mid], jobs[mid]
     try:
-        if not runs_here(m):  # the library hides it; also refused when the API is called directly
-            raise RuntimeError(NOT_HERE)
         if m.get("gguf"):
             ensure_gguf_node()
         files = [(r, f, l, remote_size(r, f)) for r, f, l in filter(None, m["files"])]
@@ -428,8 +431,6 @@ def listing(settings):
     rec = set(filter(None, info.get("recommended", {}).values()))
     out = []
     for m in CATALOG:
-        if not runs_here(m):
-            continue
         key = m["id"] if m["kind"] == "llm" else ("vid:" if m["kind"] == "video" else "img:") + m["ckpt"]
         meas = settings.get("speed", {}).get(key)
         inst = installed(m)  # checks up to 11 files: once per model
@@ -440,7 +441,7 @@ def listing(settings):
                       "visionGb": 0.9 if m.get("vision") else 0,
                       "think": m.get("think", False), "custom": m.get("custom", False),
                       "cloud": m.get("providerLabel") if m.get("cloud") else None,
-                      "recommended": m["id"] in rec, "qualityGuess": m.get("qualityGuess", False),
+                      "recommended": m["id"] in rec, "qualityGuess": m.get("qualityGuess", False), "macNote": mac_note(m),
                       **indicators(m, meas, info)})
     return out
 
@@ -486,8 +487,6 @@ def hf_search(q, kind):
     from urllib.parse import quote
     if blocked(q):
         return []
-    if kind == "image" and config.IS_MAC:
-        raise RuntimeError(HF_IMAGE_MAC)
     if kind == "image":
         url = f"models?search={quote(q)}&pipeline_tag=text-to-image&sort=downloads&limit=40&full=true"
     else:
@@ -497,8 +496,6 @@ def hf_search(q, kind):
 
 
 def hf_files(repo, kind):
-    if kind == "image" and config.IS_MAC:
-        raise RuntimeError(HF_IMAGE_MAC)
     if blocked(repo):
         raise RuntimeError("modèle non proposé dans Sparky")
     info = hf_get(f"models/{repo}")

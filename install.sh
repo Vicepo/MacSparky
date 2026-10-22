@@ -104,7 +104,7 @@ T() {
       level) v='Niveau :' ;; usable) v='Go utilisables pour les modèles' ;; recommended) v='Recommandé pour ce Mac' ;;
       later) v='Tu choisiras et installeras tes modèles dans le navigateur, au premier lancement.' ;;
       shortq) v='Créer aussi un raccourci Sparky sur le Bureau ?' ;; shortcut) v='Raccourci sur le Bureau : Sparky.command' ;; noshort) v='Pas de raccourci sur le Bureau' ;;
-      app) v='Application « Sparky » dans ~/Applications (Spotlight, Launchpad)' ;; noapp) v='~/Applications/Sparky.app appartient à un autre programme : laissée telle quelle' ;;
+      app) v="Application « Sparky » dans $HOME/Applications (Spotlight, Launchpad)" ;; noapp) v="$HOME/Applications/Sparky.app appartient à un autre programme : laissée telle quelle" ;;
       ready) v='Sparky est prêt !' ;; launchhow) v='Lance-le depuis Spotlight ou Launchpad (« Sparky »),' ;; launchhow2) v='ou ./start.sh dans le dossier d'"'"'installation.' ;;
       opening) v='Ouverture de Sparky dans ton navigateur...' ;; bye) v='Amuse-toi bien !' ;; already) v='déjà installé' ;;
       nogit) v='git absent : téléchargement de l'"'"'archive (les mises à jour automatiques demandent git).' ;;
@@ -132,7 +132,7 @@ T() {
       level) v='Level:' ;; usable) v='GB usable for models' ;; recommended) v='Recommended for this Mac' ;;
       later) v='You will choose and install your models in the browser, at first launch.' ;;
       shortq) v='Also create a Sparky shortcut on the Desktop?' ;; shortcut) v='Desktop shortcut: Sparky.command' ;; noshort) v='No Desktop shortcut' ;;
-      app) v='"Sparky" app in ~/Applications (Spotlight, Launchpad)' ;; noapp) v='~/Applications/Sparky.app belongs to another program: left alone' ;;
+      app) v="\"Sparky\" app in $HOME/Applications (Spotlight, Launchpad)" ;; noapp) v="$HOME/Applications/Sparky.app belongs to another program: left alone" ;;
       ready) v='Sparky is ready!' ;; launchhow) v='Open it from Spotlight or Launchpad ("Sparky"),' ;; launchhow2) v='or ./start.sh in the install folder.' ;;
       opening) v='Opening Sparky in your browser...' ;; bye) v='Enjoy!' ;; already) v='already installed' ;;
       nogit) v='git missing: downloading the archive (automatic updates need git).' ;;

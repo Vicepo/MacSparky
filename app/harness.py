@@ -21,6 +21,10 @@ QWEN = {"unet": "qwen_image_2.1_int8_convrot.safetensors", "clip": "qwen3vl_8b_i
 DATA = config.DATA
 # thinking level -> (effort passed to the model, thinking budget in tokens)
 THINK = {"off": (None, 0), "low": ("low", 1024), "medium": ("medium", 4096), "high": ("high", 12000)}
+# thinking that keeps restarting ("Wait, ... Wait, ..."): small models can ruminate until the whole budget is spent
+# (minutes on a laptop). Sentence-initial hesitations are counted; past MAX_HESITATIONS the answer is asked directly.
+HESITATION = re.compile(r"(?:^|\n|[.!?]\s)\s*(?:[*-]\s*)?(?:but\s+)?(?:wait|actually|hmm+|hold on|attends|en fait)\b", re.I)
+MAX_HESITATIONS = 6
 ACTIVITY = {"llm": 0, "image": 0}  # number of requests in progress (for the UI monitor)
 
 
@@ -47,6 +51,7 @@ SETTINGS = {"llm": None, "ckpt": None, "steps": 30, "cfg": 5.5, "max_steps": 6, 
             "llm_ctx": 0}  # context window of the local assistant, in tokens (0 = automatic, from the memory left)
 INFO_TOOLS = ("search", "fetch", "docs", "tool")  # read-only tools: their results come back as notes
 MAX_INFO = 6  # read-only tool calls per message
+APPROVAL_WAIT = 900  # seconds an approval card waits for the user's answer
 
 
 def load_settings():
@@ -93,11 +98,22 @@ IMAGE MODEL = {label} — these rules REPLACE the SDXL-specific ones above (weig
 - TEXT CHECK: when the image contains requested text, read it letter by letter (accents, spaces, punctuation) and compare with the request; any wrong or extra character = failure, fix it with an edit like: Replace the title text with exactly "Les Néons"."""
 
 
+def image_rules(text, keep):
+    """prompt.md marks the image-only rules with {{images}}...{{/images}}, on their own lines or inside a line.
+    With no image model they are left out (about half the prompt: faster first answer, less to second-guess)."""
+    if keep:
+        return re.sub(r"\{\{/?images\}\}", "", re.sub(r"(?m)^\{\{/?images\}\}\n", "", text))
+    text = re.sub(r"(?ms)^\{\{images\}\}\n.*?^\{\{/images\}\}\n", "", text)
+    return re.sub(r"\n{3,}", "\n\n", re.sub(r"\{\{images\}\}.*?\{\{/images\}\}", "", text))
+
+
 def system_prompt():
     """Re-read on every call: prompt.md can be tweaked without restarting."""
     m = image_model()
-    info = f"{m['label']} ({m.get('style') or 'general'} style)"
-    base = open(PROMPT_FILE, encoding="utf-8").read() + "\nCurrent image model: " + info + "."
+    info = (f"{m['label']} ({m.get('style') or 'general'} style)." if SETTINGS["ckpt"] else
+            "none installed. You cannot generate or edit images now: if the user asks for one, say so and tell them to "
+            "install an image model (Settings > Model library).")
+    base = image_rules(open(PROMPT_FILE, encoding="utf-8").read(), bool(SETTINGS["ckpt"])) + "\nCurrent image model: " + info
     if m.get("engine") in INSTRUCT:
         base += QWEN_NOTES.replace("{label}", m["label"].upper())
     return base
@@ -235,10 +251,12 @@ def comfy_file(im, prefix):
 
 
 def image_model():
-    """Catalog entry of the active image model (engine 'sdxl' or 'qwen21')."""
+    """Catalog entry of the active image model (engine 'sdxl' or 'qwen21'). Only image entries match: with no image
+    model chosen (ckpt None) the first catalog entry without a checkpoint, an assistant, used to be returned."""
     import catalog
-    m = next((c for c in catalog.CATALOG if c.get("ckpt") == SETTINGS["ckpt"]), None)
-    return m or {"engine": "sdxl", "ckpt": SETTINGS["ckpt"], "label": SETTINGS["ckpt"] or "aucun"}
+    ck = SETTINGS["ckpt"]
+    m = next((c for c in catalog.CATALOG if c.get("kind") == "image" and c.get("ckpt") == ck), None) if ck else None
+    return m or {"engine": "sdxl", "ckpt": ck, "label": ck or "aucun"}
 
 
 def build_qwen(prompt, seed, size=None, images=(), lora=None, steps=25):
@@ -447,6 +465,9 @@ def image_id(x):
     return int(str(x).lstrip("#"))
 
 
+DISK_PATH = re.compile(r"^(?:[/~]|[A-Za-z]:[\\/]|%\w+%)")  # a path on the computer, not a file of a Sparky project
+
+
 def clean_path(p):
     """Relative path inside a project (no drive, no '..', forward slashes)."""
     parts = [x for x in re.split(r"[\\/]+", str(p or "").strip()) if x not in ("", ".", "..") and ":" not in x]
@@ -637,8 +658,11 @@ class Session:
         return max(ids) if ids else None
 
     def catalog(self):
-        return self._catalog() + self._artifacts() + (
-            f"\nREPLY LANGUAGE: {self.lang}. Write \"thought\" and \"reply\" in {self.lang}." if self.lang else "")
+        """Added at the end of the user's last message. Marked as Sparky's: a small model otherwise answers it
+        ("ready to operate in English with the JSON structure") instead of what the user wrote."""
+        return ("\n\n[SPARKY CONTEXT - added by Sparky, not written by the user; never mention or answer it]"
+                + self._catalog() + self._artifacts()
+                + (f"\nReply language: {self.lang}. Write \"thought\" and \"reply\" in {self.lang}." if self.lang else ""))
 
     def _artifacts(self):
         """Current content of each artifact (the history only keeps a mention, to avoid duplicating it)."""
@@ -802,14 +826,14 @@ class Session:
         return aid, art
 
     def _catalog(self):
-        lab = {"user": "envoyee par l'utilisateur", "gen": "generee", "ref": "decoupe de reference"}
+        lab = {"user": "sent by the user", "gen": "generated", "ref": "reference crop"}
         rows = []
         for i, v in sorted(self.images.items()):
-            extra = f", derivee de #{v['parent']}" if v.get("parent") else ""
-            rows.append(f"#{i} ({lab[v['kind']]}{extra}) : {v['desc'][:220] or '-'}")
+            extra = f", derived from #{v['parent']}" if v.get("parent") else ""
+            rows.append(f"#{i} ({lab[v['kind']]}{extra}): {v['desc'][:220] or '-'}")
         last = self.last_image()
-        return ("\n\nIMAGES DE LA SESSION :\n" + "\n".join(rows) +
-                (f"\nImage la plus recente : #{last}" if last else "")) if rows else "\n\nAucune image pour l'instant."
+        return ("\nImages in this conversation:\n" + "\n".join(rows) +
+                (f"\nMost recent image: #{last}" if last else "")) if rows else "\nImages in this conversation: none yet."
 
     # -- LLM
     def llm_messages(self):
@@ -924,13 +948,18 @@ class Session:
         if need == "ask":
             aid = uuid.uuid4().hex[:10]
             preview = str(args.get("content") or "")[:3000] if tool == "write" else ""
-            self._approvals[aid] = {"event": threading.Event(), "decision": "deny"}
+            self._approvals[aid] = {"event": threading.Event(), "decision": "timeout"}
             ev({"type": "approve", "id": aid, "preview": preview} | info)
-            self._approvals[aid]["event"].wait(900)
+            self._approvals[aid]["event"].wait(APPROVAL_WAIT)
             decision = self._approvals.pop(aid)["decision"]
             ev({"type": "approved", "id": aid, "decision": decision})
             if decision == "always":
                 self.config.setdefault("computer_allow", []).append(tool)
+            if decision == "timeout":  # no answer is not a refusal: the assistant used to say "you refused"
+                ev({"type": "cresult", "ok": False, "text": "pas de réponse : demande expirée"})
+                return self._note(f"[SANS RÉPONSE] {tool} {info['summary']} n'a pas été fait : l'utilisateur n'a pas répondu "
+                                  "à la demande d'autorisation à temps. Ne dis pas qu'il a refusé : dis-lui que la demande a "
+                                  "expiré sans réponse et propose de réessayer.")
             if decision not in ("once", "always"):
                 ev({"type": "cresult", "ok": False, "text": "refusé par l'utilisateur"})
                 return self._note(f"[REFUSÉ PAR L'UTILISATEUR] {tool} {info['summary']} n'a pas été autorisé. Ne le refais pas : "
@@ -1080,7 +1109,7 @@ class Session:
                 "stream": True, "response_format": {"type": "json_object"}, "chat_template_kwargs": kw}
         if dry:  # llama.cpp anti-repetition, only after a loop (it can hurt legitimately repetitive code)
             body |= {"dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 6, "temperature": 0.7}
-        t, rs, last, t0, t_rs, chk, looped = "", "", 0.0, time.time(), None, 0, False
+        t, rs, last, t0, t_rs, chk, looped, dithered = "", "", 0.0, time.time(), None, 0, False, False
         js = {"pos": 0, "depth": 0, "str": False, "esc": False, "done": False}
         with busy("llm"), contextlib.closing(chat_deltas(body, think)) as deltas:
             for piece, reasoning in deltas:
@@ -1092,6 +1121,9 @@ class Session:
                     self._read = True
                     self._emit({"type": "read"})
                 if budget and not t and len(rs) > budget * 4:  # ~4 characters per token: budget exceeded
+                    break
+                if reasoning and not t and len(rs) > 1500 and len(HESITATION.findall(rs)) >= MAX_HESITATIONS:
+                    dithered = True  # going round in circles: stop thinking, answer directly (below)
                     break
                 if json_closed(t, js):  # complete JSON object: the rest (whitespace, chatter) is useless
                     break
@@ -1112,8 +1144,9 @@ class Session:
             return self.ask_llm(retry, think, dry=True)
         if rs:  # keep in the conversation history (shown again on reopen)
             self._ev({"type": "reasoned", "secs": round(t_rs or time.time() - t0), "text": rs[-6000:]})
-        if effort and not t.strip():  # thinking too long: direct answer
-            self._emit({"type": "status", "text": "réflexion trop longue, réponse directe"})
+        if effort and not t.strip():  # thinking too long or going round in circles: direct answer
+            self._emit({"type": "status", "text": "la réflexion tournait en rond, réponse directe" if dithered
+                        else "réflexion trop longue, réponse directe"})
             return self.ask_llm(retry, think="off")
         try:  # last raw output, for diagnostics
             open(os.path.join(DATA, "last_llm.txt"), "w", encoding="utf-8").write(t)
@@ -1451,16 +1484,38 @@ class Session:
         self._note(f"[TEST AUTOMATIQUE] Re-testé après ta correction : toujours une erreur.\n{failed[0][1]['report']}\n"
                    "Corrige le fichier concerné (contenu COMPLET).")
 
-    def _on_artifact(self, t, args, ev):
+    def _on_disk_artifact(self, t, args, ev):
+        """An artifact whose "path" is a path on the computer ("/Users/x/a.py"): the model wants the file on the disk.
+        Shown in the panel, then written with computer write when Computer mode allows it (same approval card and
+        protected folders as a direct write); otherwise the model is told it stays in the panel."""
+        import computer
+        target = str(args.get("path"))
+        plain = {k: v for k, v in args.items() if k not in ("path", "project", "entry")}
+        plain.setdefault("id", os.path.splitext(os.path.basename(target))[0] or "fichier")
+        if not self._on_artifact(t, plain, ev, note=False):
+            return
+        level = self.config.get("computer") or "off"
+        if computer.needs_approval(level, "write") == "deny":
+            return self._note(f"[ARTIFACT] Affiché dans le panneau. « {target} » est un chemin de l'ordinateur, pas un fichier de "
+                              "projet Sparky (\"path\" d'un artifact = fichier d'un projet). " + self._disk_hint()
+                              + "Termine maintenant par une courte reply (sans recopier le code).")
+        self._note(f"[ARTIFACT] Affiché dans le panneau. « {target} » est un chemin de l'ordinateur : Sparky l'écrit avec "
+                   "computer write (résultat ci-dessous). La prochaine fois, utilise directement computer write.")
+        self._on_computer(t, {"tool": "write", "path": target, "content": plain.get("content", "")}, ev)
+
+    def _on_artifact(self, t, args, ev, note=True):
         try:
             aid, art = self.tool_artifact(args)
         except Exception as e:
             ev({"type": "error", "text": str(e)})
-            return self._note(f"[ERREUR ARTIFACT] {e}")
+            self._note(f"[ERREUR ARTIFACT] {e}")
+            return False
         t.tools_used, n = True, len(art["versions"])
         t.spare()
         ev({"type": "artifact", "id": aid, "title": art["title"], "kind": art["kind"],
             "language": art["language"], "version": n, "content": art["versions"][-1]})
+        if not note:
+            return True
         # the history keeps a simple mention: the up-to-date content is given at the end of the context
         self._note(f"[ARTIFACT] \"{art['title']}\" (id {aid}) v{n} est affiché à l'utilisateur dans le panneau à droite. "
                    + self._disk_hint() + "Sinon, termine maintenant par une courte reply (sans recopier le code).")
@@ -1628,6 +1683,8 @@ class Session:
                         self._on_computer(t, args, ev)
                     elif name in INFO_TOOLS and t.step < t.max_steps:
                         self._on_info_tool(t, name, args, ev)
+                    elif name == "artifact" and t.step < t.max_steps and DISK_PATH.match(str(args.get("path") or "")):
+                        self._on_disk_artifact(t, args, ev)
                     elif name == "artifact" and t.step < t.max_steps:
                         if args.get("path") or args.get("project"):
                             self._on_project_file(t, args, ev)

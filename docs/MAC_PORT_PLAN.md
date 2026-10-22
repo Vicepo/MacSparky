@@ -56,6 +56,7 @@ Each phase ends with: tests green on macOS, a commit, a push to `origin`.
 5. **Milestone:** Sparky opens at `http://127.0.0.1:7860`, chat works with a small local model on Metal.
 
 ### Phase 3 — Images, voice, dictation
+Detailed plan: [PHASE3_PLAN.md](PHASE3_PLAN.md).
 1. ComfyUI on MPS: test which catalog image models actually run; add Mac-friendly variants (fp16 / GGUF) where
    FP8/INT8 files fail. Big models (Qwen Image, 16 GB) will not fit in 16 GB — hide them on small Macs.
 2. `stt.py`: MPS device.
@@ -106,6 +107,15 @@ README for Mac (install, screenshots), UI texts, version `1.6.1-mac.1`, GitHub r
   folded; Trash (`/usr/bin/trash`, Finder fallback), `open`, `zsh` with a timeout that stops the whole process group,
   `/` + `/Volumes` disks, Mac prompt. Still to do in phase 4: screenshot permission message, UI texts ("Recycle Bin").
   Note: the macOS test sends `sparky-test-trash.txt` to the Trash on each local run.
+- **Fixes after the second real test (A, B, D, E, F, G) done.** Thinking spirals cut early (D); page crash on an artifact
+  that turns into a project file (E); an artifact with a disk path goes through computer write (F) and the prompt says
+  saving = write only (G); the context added to each message is marked as Sparky's (A); no imaginary image model (B).
+- ~~**C:** with no image model installed, leave the image-generation instructions out of the system prompt~~ **done**:
+  `prompt.md` stays one file (easier upstream merges); its image-only rules are marked `{{images}}…{{/images}}` and
+  `harness.image_rules` drops them when no image model is chosen (with one, the prompt is byte-identical to before).
+  Measured on the M3 / Qwen3.5 4B, cache off: 2 724 → 1 268 tokens, first answer 8.5 s → 4.2 s. Same answers on a
+  4-message check (image refused with the install hint, code artifact or short reply, chat, explanation).
+- Note: running tests while Sparky answers chats makes both slow on 16 GB (338 s instead of 25 s for the suite).
 - **Version naming (phase 6):** `1.6.1-mac.1` fails `test_version_is_semver`; relax the test or pick another scheme.
 - **install.ps1** still clones `anisayari/sparky` while the updater checks `Vicepo/MacSparky` (left as is for merges).
 - **CI:** the new macOS jobs and ShellCheck have not run yet (needs a push).

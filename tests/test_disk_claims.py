@@ -102,3 +102,103 @@ def test_the_guard_gives_up_after_two_nudges(agent):
     """A stubborn model: the turn still ends (the reply goes out) instead of looping."""
     s, ev, notes = agent([ARTIFACT, CLAIM, CLAIM, CLAIM], "off")
     assert replies(ev) == [CLAIM["args"]["text"]] and sum("[HONESTY]" in text_of(n) for n in notes) == 2
+
+
+# F: an artifact with a path on the computer = the model wants the file on the disk (seen live: crash, nothing saved)
+def disk_artifact(path):
+    return {"action": "artifact", "args": {"id": "large-files-scanner", "title": "Large Files Scanner", "kind": "code",
+                                           "language": "python", "content": CODE, "path": str(path)}}
+
+
+def test_an_artifact_with_a_disk_path_is_written_through_computer_mode(agent, tmp_path):
+    target = tmp_path / "large_files.py"
+    s, ev, notes = agent([disk_artifact(target), {"action": "reply", "args": {"text": f"Saved to {target}."}}], "full")
+    assert target.read_text() == CODE and not s.projects  # on the disk, not a fake "project" named after the path
+    kinds = [e["type"] for e in ev]
+    assert "artifact" in kinds and kinds.index("artifact") < kinds.index("ctool")  # shown in the panel, then written
+    assert next(e for e in ev if e["type"] == "ctool")["tool"] == "write"
+    assert replies(ev) == [f"Saved to {target}."]
+
+
+def test_a_disk_path_artifact_still_needs_the_users_approval(agent, tmp_path, monkeypatch):
+    """Level "ask": the same approval card as a direct write; nobody allows it -> nothing written."""
+    target = tmp_path / "large_files.py"
+
+    class NoAnswer(harness.threading.Event):
+        def wait(self, timeout=None):  # the card is closed without "Allow": the decision stays "deny"
+            return False
+    monkeypatch.setattr(harness.threading, "Event", NoAnswer)
+    honest = {"action": "reply", "args": {"text": "The file was not saved: you declined the write."}}
+    s, ev, notes = agent([disk_artifact(target), honest], "ask")
+    assert not target.exists()
+    assert [e["type"] for e in ev if e["type"] in ("approve", "approved")] == ["approve", "approved"]
+
+
+def test_a_disk_path_artifact_cannot_reach_a_protected_place(agent, tmp_path):
+    """Same protection as a direct write (computer.check_writable)."""
+    import os
+    home_hidden = os.path.join(os.path.expanduser("~"), ".sparky-test-should-never-exist")
+    target = home_hidden if os.name != "nt" else os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "x.py")
+    s, ev, notes = agent([disk_artifact(target), {"action": "reply", "args": {"text": "I could not save it there."}}], "full")
+    assert not os.path.exists(target)
+    assert any(e["type"] == "cresult" and not e["ok"] for e in ev)
+
+
+def test_without_computer_mode_a_disk_path_artifact_stays_in_the_panel(agent, tmp_path):
+    target = tmp_path / "large_files.py"
+    honest = {"action": "reply", "args": {"text": "It is in the panel; turn on Computer mode to save it."}}
+    s, ev, notes = agent([disk_artifact(target), honest], "off")
+    assert not target.exists() and "ctool" not in [e["type"] for e in ev]
+    assert "chemin de l'ordinateur" in text_of(notes[1]) and "désactivé" in text_of(notes[1])
+    assert replies(ev) == [honest["args"]["text"]]
+
+
+def test_relative_project_paths_are_unchanged(agent):
+    files = {"action": "artifact", "args": {"project": "site", "title": "Site", "path": "index.html", "language": "html",
+                                            "content": "<!doctype html><html><body><h1>Bonjour</h1><p>une page complète</p></body></html>"}}
+    s, ev, notes = agent([files, {"action": "reply", "args": {"text": "The site is in the panel."}}], "full")
+    assert "site" in s.projects and "ctool" not in [e["type"] for e in ev]
+
+
+def test_computer_prompt_says_write_only_never_an_artifact():
+    import computer
+    text = computer.prompt("ask", True)
+    assert "use ONLY" in text and "Never an artifact for that" in text and "you may also show it as an artifact" not in text
+
+
+# B: with no image model, the assistant was told "Current image model: Qwen3.8 27B" (an assistant, not an image model)
+def test_no_image_model_is_said_plainly(monkeypatch):
+    import catalog
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", None)
+    assert harness.image_model()["label"] == "aucun"
+    assert all(harness.image_model()["label"] != m["label"] for m in catalog.CATALOG if m["kind"] != "image")
+    text = harness.system_prompt()
+    assert "Current image model: none installed. You cannot generate or edit images now" in text
+
+
+def test_an_installed_image_model_is_named(monkeypatch):
+    import catalog
+    img = next(m for m in catalog.CATALOG if m["kind"] == "image" and m.get("ckpt"))
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", img["ckpt"])
+    assert harness.image_model()["label"] == img["label"]
+    assert f"Current image model: {img['label']} (" in harness.system_prompt()
+
+
+# C: with no image model the image-only rules of prompt.md are left out; with one, the prompt is unchanged
+def test_image_rules_are_left_out_without_an_image_model(monkeypatch):
+    src = open(harness.PROMPT_FILE, encoding="utf-8").read()
+    assert src.count("{{images}}") == src.count("{{/images}}") > 0
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", None)
+    text = harness.system_prompt()
+    assert "{{" not in text and "\n\n\n" not in text
+    assert "REFERENCES" not in text and '"action":"reply|artifact"' in text and "4. artifact:" in text
+    assert len(text) < 0.6 * len(src)
+
+
+def test_image_rules_are_kept_with_an_image_model(monkeypatch):
+    import catalog
+    img = next(m for m in catalog.CATALOG if m["kind"] == "image" and m.get("ckpt"))
+    monkeypatch.setitem(harness.SETTINGS, "ckpt", img["ckpt"])
+    text = harness.system_prompt()
+    assert "{{" not in text and "REFERENCES (refs)" in text and '"action":"reply|generate|edit|artifact"' in text
+    assert "and create or edit images with tools." in text and "and generate again." in text

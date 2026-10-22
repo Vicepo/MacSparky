@@ -481,14 +481,17 @@ def prompt(level, vision):
             "full": "Actions run immediately without asking: be careful, act only on what the user asked."}[level]
     mac = MAC
     example = "desktop/file.txt" if mac else "desktop\\file.txt"
-    return (f"COMPUTER MODE: you can act on the user's {'Mac' if mac else 'Windows PC'} with the action \"computer\": "
-            "{\"action\":\"computer\",\"args\":{\"tool\":\"<tool>\", ...tool args}}. One tool per answer; you get the result, then continue "
-            "or reply. " + rule + "\nTools:\n" + "\n".join(tools) +
+    return (f"COMPUTER MODE: you can act on the user's {'Mac' if mac else 'Windows PC'} with the action \"computer\". It is one more "
+            "action of the same JSON object as above: {\"thought\":\"...\",\"action\":\"computer\",\"args\":{\"tool\":\"<tool>\", "
+            "...tool args}} (\"notes\" only right after you saw an image). One tool per answer; you get the result, then continue "
+            "or reply. A request with several steps (create a file, then run it...): do the FIRST step now, the next one after its "
+            "result; do not plan every step in your thinking. " + rule + "\nTools:\n" + "\n".join(tools) +
             f"\nUser folders: home {pl['home']}, desktop {pl['desktop']}, documents {pl['documents']}, downloads {pl['downloads']} "
             f"(you can also write {example}). "
-            "SAVING A FILE ON THE COMPUTER = the write tool with the full path and the COMPLETE content. An artifact is only shown in "
-            "Sparky's panel and is NOT saved on the computer: when the user asks for a file in a folder, call write (you may also "
-            "show it as an artifact). Say a file is saved only after write returned its result. "
+            "SAVING A FILE ON THE COMPUTER: use ONLY {\"action\":\"computer\",\"args\":{\"tool\":\"write\",\"path\":\"<full path>\","
+            "\"content\":\"<COMPLETE file>\"}}. Never an artifact for that: an artifact is only shown in Sparky's panel, and its "
+            "\"path\" is only for a file inside a Sparky project, never a folder of the computer. Say a file is saved only after "
+            "write returned its result. "
             "Start by listing or searching instead of guessing paths; list already gives sizes "
             "and dates (no info call per file). For several files use ONE move/copy/trash with \"paths\". Free disk space: disks. "
             f"Deleting = trash ({'the Trash' if mac else 'Recycle Bin'}). Never touch system folders"
